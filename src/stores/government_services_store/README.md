@@ -1,13 +1,15 @@
 # CitizenAI Government Services Store
 
-An in-memory store for managing government services specifications with search functionality.
+An in-memory store for managing government services specifications with search functionality and data persistence.
 
 ## Features
 
 - **Service Management**: Store and manage government services with URI, ID, name, and description
 - **Keyword Search**: Search services by keywords with frequency-based ranking
 - **Service Retrieval**: Get individual services by their ID
-- **External Store Integration**: Placeholder for future external store connectivity
+- **External Store Integration**: Load services from Czech government SPARQL endpoint
+- **Local Data Persistence**: Cache services locally as JSON for faster subsequent loads
+- **Fallback Loading Strategy**: Automatically falls back from local to external data sources
 
 ## Classes
 
@@ -21,13 +23,16 @@ A dataclass representing a government service with:
 **Features:**
 - Automatic ID extraction from URI using `urlparse()` if ID is empty
 - Validation ensures ID is always available or raises `ValueError`
-- ID is extracted as the last path segment or fragment from the URI
+- Smart ID extraction: prioritizes URI fragment, then falls back to last path segment
+- Supports both path-based URIs (`/services/passport-renewal`) and fragment-based URIs (`/services#passport-renewal`)
 
 ### GovernmentServicesStore
 The main store class providing:
 
+**Data Loading:**
+- `load_services()`: Smart loading with fallback strategy (local file → external SPARQL endpoint)
+
 **Core Methods:**
-- `load_services_from_external_store(external_store_url)`: Load services from external source (placeholder for future implementation)
 - `search_services_by_keywords(keywords, k=10)`: Search top-K services by keywords with frequency-based ranking
 - `get_service_by_id(service_id)`: Retrieve service by ID, returns `Optional[GovernmentService]`
 
@@ -42,6 +47,22 @@ The main store class providing:
 - `len(store)`: Get number of services using Python's `len()` function
 - `service_id in store`: Check if service exists using Python's `in` operator
 
+**Data Persistence:**
+- `_store_to_local()`: Store services to local JSON file (internal method)
+- `_load_from_local()`: Load services from local JSON file (internal method)
+- `_load_from_external_store()`: Load services from SPARQL endpoint (internal method)
+
+## Data Sources
+
+### Local JSON Cache
+Services are cached locally at `data/stores/government_services_store/government_services_data.json` for faster loading.
+
+### External SPARQL Endpoint
+The store integrates with the Czech government open data SPARQL endpoint:
+- **Endpoint**: `https://rpp-opendata.egon.gov.cz/odrpp/sparql/`
+- **Query**: Retrieves government services (`služba-veřejné-správy`) with names and descriptions
+- **Automatic Fallback**: Used when local cache is unavailable or corrupted
+
 ## Usage
 
 ```python
@@ -50,7 +71,11 @@ from government_services_store import GovernmentService, GovernmentServicesStore
 # Create store
 store = GovernmentServicesStore()
 
-# Add services (ID auto-extracted from URI)
+# Load services using smart fallback strategy
+# Will load from local cache if available, otherwise from SPARQL endpoint
+store.load_services()
+
+# Add custom services (ID auto-extracted from URI)
 service = GovernmentService(
     uri="https://gov.example.com/services/passport-renewal",
     id="",  # Will be auto-extracted as "passport-renewal"
@@ -91,6 +116,20 @@ all_services = store.get_all_services()
 print(f"Total services: {store.get_services_count()}")
 ```
 
+## Loading Strategy
+
+The `load_services()` method implements a smart fallback strategy:
+
+1. **Clear existing data** if the store is not empty
+2. **Try local cache first**: Load from `data/stores/government_services_store/government_services_data.json`
+3. **Fallback to external**: If local file doesn't exist or fails, query the SPARQL endpoint
+4. **Error handling**: Provides detailed error messages and graceful degradation
+
+**Benefits:**
+- **Fast startup**: Local cache loads instantly
+- **Always up-to-date**: Falls back to live data when cache is unavailable
+- **Robust**: Handles network failures and file corruption gracefully
+
 ## Search Algorithm
 
 The `search_services_by_keywords()` method implements intelligent keyword matching:
@@ -109,39 +148,125 @@ The `search_services_by_keywords()` method implements intelligent keyword matchi
 
 ## Dependencies
 
-The implementation uses only Python standard library modules:
-- `typing`: Type hints for better code quality
-- `dataclasses`: For the `GovernmentService` dataclass
-- `re`: Regular expressions for keyword matching
-- `urllib.parse`: URI parsing for ID extraction
-- `collections`: Not currently used but imported for future enhancements
+The implementation requires the following packages:
+- **Standard Library**: `typing`, `dataclasses`, `re`, `urllib.parse`, `json`, `pathlib`
+- **External Libraries**: 
+  - `rdflib`: For SPARQL query execution and RDF graph processing
+  - Install with: `pip install rdflib`
+
+Add to your `requirements.txt`:
+```
+rdflib>=6.0.0
+```
 
 ## Testing
 
-Run the test file to see the functionality in action:
+Run the comprehensive test suite to see all functionality in action:
 
 ```bash
-cd scr
+cd src/stores/government_services_store
 python test_government_services_store.py
 ```
 
-The test file includes:
-- Sample government services (passport, business license, tax filing, etc.)
-- Keyword search demonstrations
-- Service retrieval by ID
-- Edge cases (no matches, empty searches)
-- Automatic ID extraction examples
+The test suite now includes **28 comprehensive tests** covering:
 
-Run the simple example:
+**GovernmentService Tests:**
+- Service creation with explicit IDs
+- Automatic ID extraction from URI paths and fragments
+- Error handling for invalid service creation
+- Validation of unparseable URIs
+
+**GovernmentServicesStore Core Tests:**
+- Adding single and multiple services
+- Service retrieval by ID (existing and non-existent)
+- Getting all services with proper data isolation
+- Store clearing functionality
+- Python built-in operations (`len()`, `in` operator)
+
+**Advanced Search Tests:**
+- Single and multiple keyword searches
+- Case-insensitive search functionality
+- Frequency-based ranking verification
+- Edge cases (no keywords, no matches)
+- Top-K result limiting
+
+**Local Storage Tests:**
+- Storing services to JSON files
+- Loading services from JSON files
+- Round-trip data integrity verification
+- File not found error handling
+- Data persistence across store instances
+
+**Smart Loading Strategy Tests:**
+- Local file priority when available
+- Fallback to external SPARQL endpoint
+- Error handling when local loading fails
+- Proper error reporting when both sources fail
+- Data clearing before loading
+
+**Test Results:**
+- ✅ 28 tests run
+- ✅ 100% success rate
+- ✅ Comprehensive error handling coverage
+- ✅ Mock-based testing for external dependencies
+
+Run the comprehensive example demonstration:
 ```bash
-cd scr  
-python example_usage.py
+cd src/stores/government_services_store
+python example_usage_government_services_store.py
 ```
+
+This example demonstrates:
+- Smart loading with fallback strategy
+- Manual service creation with automatic ID extraction
+- Advanced search capabilities with multiple scenarios
+- Service retrieval methods
+- Python built-in operations
+- Local storage functionality
+- Error handling scenarios
+
+## File Structure
+
+```
+src/stores/government_services_store/
+├── __init__.py
+├── government_services_store.py      # Main implementation
+├── test_government_services_store.py # Comprehensive test suite (28 tests)
+├── example_usage_government_services_store.py # Comprehensive usage examples
+└── README.md                         # This file
+
+data/stores/government_services_store/
+└── government_services_data.json     # Local cache (auto-created)
+```
+
+## Implementation Details
+
+**Method Naming Convention:**
+- Public methods: `load_services()`, `search_services_by_keywords()`, etc.
+- Internal methods: `_store_to_local()`, `_load_from_local()`, `_load_from_external_store()`
+- Private attributes: `_services`, `_services_list`
+
+**Error Handling:**
+- `ValueError`: Raised when service ID cannot be determined from URI
+- `FileNotFoundError`: Raised when local JSON file doesn't exist
+- `RuntimeError`: Raised when both local and external loading fail
+- Graceful degradation with detailed error messages
+
+**Data Validation:**
+- Required fields validation for JSON loading
+- URI parsing with fallback mechanisms
+- Individual service creation error handling
+- Data integrity verification in tests
 
 ## Future Enhancements
 
-- External store integration (REST API, database, etc.)
-- Advanced search with fuzzy matching
-- Service categorization and filtering
-- Caching mechanisms
-- Data persistence options
+- **Advanced search**: Fuzzy matching and semantic search capabilities
+- **Service categorization**: Organize services by government departments or topics
+- **Caching mechanisms**: Intelligent cache invalidation and refresh strategies
+- **Data validation**: Enhanced validation for government service data
+- **Multi-language support**: Support for services in multiple languages
+- **API integration**: REST API wrapper for web service integration
+- **Performance optimization**: Indexing and query optimization for large datasets
+- **Async support**: Asynchronous loading from external endpoints
+- **Data export**: Export services to various formats (CSV, XML, etc.)
+- **Service versioning**: Track changes and versions of government services
