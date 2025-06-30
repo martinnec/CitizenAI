@@ -29,6 +29,7 @@ Thumbs.db
 *.temp
 
 # Distribution / packaging
+.env
 .Python
 build/
 develop-eggs/
