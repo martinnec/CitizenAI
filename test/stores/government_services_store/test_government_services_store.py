@@ -5,7 +5,7 @@ This file demonstrates the usage of the GovernmentServicesStore class
 and provides example services for testing.
 """
 
-from government_services_store import GovernmentService, GovernmentServicesStore
+from src.stores.government_services_store import GovernmentService, GovernmentServicesStore
 
 
 def create_sample_services():
