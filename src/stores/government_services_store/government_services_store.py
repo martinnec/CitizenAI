@@ -199,6 +199,7 @@ class GovernmentServicesStore:
         # Step 3: If local file doesn't exist or loading failed, load from external store
         try:
             self._load_from_external_store()
+            self._load_auxiliary_details()
         except Exception as external_error:
             raise RuntimeError(f"Failed to load services from both local and external sources. "
                              f"External error: {external_error}")
@@ -250,7 +251,7 @@ class GovernmentServicesStore:
                     if not uri or not name:
                         continue
                     
-                    # Create GovernmentService object (ID will be auto-extracted from URI)
+                    # Create GovernmentService object (ID will be auto-extracted from URI in __post_init__
                     service = GovernmentService(
                         uri=uri,
                         id="",  # Will be auto-extracted from URI in __post_init__
@@ -381,3 +382,45 @@ class GovernmentServicesStore:
             raise
         except Exception as e:
             raise RuntimeError(f"Failed to load services from local file: {e}")
+
+    def _load_auxiliary_details(self) -> None:
+        """
+        Load auxiliary details from a local JSON file and merge them with existing services.
+        """
+        details_file_path = Path("data/stores/government_services_store/government_services_details.json")
+        if not details_file_path.exists():
+            print(f"Warning: Auxiliary details file not found at {details_file_path}")
+            return
+
+        try:
+            with open(details_file_path, 'r', encoding='utf-8') as f:
+                details_data = json.load(f)
+
+            if "položky" not in details_data:
+                print("Warning: 'položky' key not found in auxiliary details file.")
+                return
+
+            details_map = {item['kód']: item for item in details_data["položky"] if 'kód' in item}
+
+            for service in self._services_list:
+                if service.id in details_map:
+                    details = details_map[service.id]
+                    
+                    # Append description
+                    if 'popis' in details and 'cs' in details['popis'] and details['popis']['cs']:
+                        # Remove HTML tags before appending
+                        clean_description = re.sub(r'<[^>]+>', '', details['popis']['cs'])
+                        service.description += " " + clean_description
+                    
+                    # Append keywords
+                    if 'klíčová-slova' in details and isinstance(details['klíčová-slova'], list):
+                        for keyword_item in details['klíčová-slova']:
+                            if 'cs' in keyword_item and keyword_item['cs']:
+                                service.keywords.append(keyword_item['cs'])
+            
+            print("Successfully loaded and merged auxiliary details.")
+
+        except json.JSONDecodeError:
+            print(f"Warning: Could not decode JSON from {details_file_path}")
+        except Exception as e:
+            print(f"An error occurred while loading auxiliary details: {e}")
