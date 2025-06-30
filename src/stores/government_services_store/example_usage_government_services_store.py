@@ -67,13 +67,15 @@ def demonstrate_manual_service_creation(store):
             uri="https://gov.example.com/services/passport-renewal",
             id="",  # Will be auto-extracted as "passport-renewal"
             name="Passport Renewal Service",
-            description="Renew your passport online with digital photo submission"
+            description="Renew your passport online with digital photo submission",
+            keywords=["passport", "travel", "documents", "renewal", "identity"]
         ),
         GovernmentService(
             uri="https://gov.example.com/services/business-license#main",
             id="",  # Will be auto-extracted as "main"
             name="Business License Application",
-            description="Apply for business license with online form submission"
+            description="Apply for business license with online form submission",
+            keywords=["business", "license", "permit", "commercial", "application"]
         )
     ]
     
@@ -86,25 +88,29 @@ def demonstrate_manual_service_creation(store):
             uri="https://gov.example.com/services/driver-license",
             id="driver-license",
             name="Driver License Renewal",
-            description="Renew your driver license online with quick digital verification"
+            description="Renew your driver license online with quick digital verification",
+            keywords=["driver", "license", "DMV", "driving", "renewal", "verification"]
         ),
         GovernmentService(
             uri="https://gov.example.com/services/voter-registration",
             id="voter-registration", 
             name="Voter Registration",
-            description="Register to vote online for upcoming elections"
+            description="Register to vote online for upcoming elections",
+            keywords=["voter", "voting", "election", "registration", "democracy", "civic"]
         ),
         GovernmentService(
             uri="https://gov.example.com/services/unemployment-benefits",
             id="unemployment-benefits",
             name="Unemployment Benefits Application",
-            description="Apply for unemployment benefits with online document submission"
+            description="Apply for unemployment benefits with online document submission",
+            keywords=["unemployment", "benefits", "social", "welfare", "assistance", "job"]
         ),
         GovernmentService(
             uri="https://gov.example.com/services/tax-filing",
             id="tax-filing",
             name="Online Tax Filing",
-            description="File your taxes online with digital document upload and e-signature"
+            description="File your taxes online with digital document upload and e-signature",
+            keywords=["tax", "filing", "IRS", "income", "refund", "digital", "e-signature"]
         )
     ]
     
@@ -158,10 +164,51 @@ def demonstrate_search_capabilities(store):
     print(f"Found {len(results)} services (should be 0)")
 
 
+def demonstrate_keywords_search(store):
+    """Demonstrate keyword-specific search capabilities."""
+    print("=" * 60)
+    print("4. KEYWORD-SPECIFIC SEARCH DEMONSTRATION")
+    print("=" * 60)
+    
+    # Search by keywords that are in the keywords field
+    print("Searching for services with keyword 'travel' (in keywords field):")
+    results = store.search_services_by_keywords(["travel"], k=5)
+    print(f"Found {len(results)} services:")
+    for i, service in enumerate(results, 1):
+        print(f"  {i}. {service.name}")
+        print(f"     Keywords: {', '.join(service.keywords) if service.keywords else 'None'}")
+    
+    # Search by category-specific keywords
+    print("\nSearching for services with keyword 'DMV':")
+    results = store.search_services_by_keywords(["DMV"], k=5)
+    print(f"Found {len(results)} services:")
+    for service in results:
+        print(f"  - {service.name}")
+        print(f"    Keywords: {', '.join(service.keywords) if service.keywords else 'None'}")
+    
+    # Search combining keywords from different fields
+    print("\nSearching for 'renewal' (appears in both name/description and keywords):")
+    results = store.search_services_by_keywords(["renewal"], k=5)
+    print(f"Found {len(results)} services:")
+    for service in results:
+        print(f"  - {service.name}")
+        if service.keywords:
+            keyword_match = "renewal" in [k.lower() for k in service.keywords]
+            print(f"    Keywords contain 'renewal': {keyword_match}")
+    
+    # Search for civic/government-specific terms
+    print("\nSearching for civic keywords 'democracy', 'civic':")
+    results = store.search_services_by_keywords(["democracy", "civic"], k=5)
+    print(f"Found {len(results)} services:")
+    for service in results:
+        print(f"  - {service.name}")
+        print(f"    Matching keywords: {[k for k in service.keywords if k.lower() in ['democracy', 'civic']]}")
+
+
 def demonstrate_service_retrieval(store):
     """Demonstrate individual service retrieval methods."""
     print("=" * 60)
-    print("4. SERVICE RETRIEVAL DEMONSTRATION")
+    print("5. SERVICE RETRIEVAL DEMONSTRATION")
     print("=" * 60)
     
     # Get service by ID
@@ -194,7 +241,7 @@ def demonstrate_service_retrieval(store):
 def demonstrate_python_built_ins(store):
     """Demonstrate Python built-in operations."""
     print("=" * 60)
-    print("5. PYTHON BUILT-IN OPERATIONS")
+    print("6. PYTHON BUILT-IN OPERATIONS")
     print("=" * 60)
     
     # len() function
@@ -212,7 +259,7 @@ def demonstrate_python_built_ins(store):
 def demonstrate_local_storage(store):
     """Demonstrate local storage capabilities."""
     print("=" * 60)
-    print("6. LOCAL STORAGE DEMONSTRATION")
+    print("7. LOCAL STORAGE DEMONSTRATION")
     print("=" * 60)
     
     print("Storing current services to local JSON file...")
@@ -252,7 +299,7 @@ def demonstrate_local_storage(store):
 def demonstrate_error_handling():
     """Demonstrate error handling scenarios."""
     print("=" * 60)
-    print("7. ERROR HANDLING DEMONSTRATION")
+    print("8. ERROR HANDLING DEMONSTRATION")
     print("=" * 60)
     
     # Invalid service creation
@@ -296,16 +343,19 @@ def main():
     # 3. Demonstrate search capabilities
     demonstrate_search_capabilities(store)
     
-    # 4. Demonstrate service retrieval
+    # 4. Demonstrate keyword-specific search
+    demonstrate_keywords_search(store)
+    
+    # 5. Demonstrate service retrieval
     demonstrate_service_retrieval(store)
     
-    # 5. Demonstrate Python built-ins
+    # 6. Demonstrate Python built-ins
     demonstrate_python_built_ins(store)
     
-    # 6. Demonstrate local storage
+    # 7. Demonstrate local storage
     demonstrate_local_storage(store)
     
-    # 7. Demonstrate error handling
+    # 8. Demonstrate error handling
     demonstrate_error_handling()
     
     print("\n" + "=" * 60)

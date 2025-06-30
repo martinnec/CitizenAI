@@ -28,10 +28,12 @@ class TestGovernmentService(unittest.TestCase):
             uri="https://gov.example.com/services/test",
             id="test-service",
             name="Test Service",
-            description="A test service"
+            description="A test service",
+            keywords=["test", "example"]
         )
         self.assertEqual(service.id, "test-service")
         self.assertEqual(service.name, "Test Service")
+        self.assertEqual(service.keywords, ["test", "example"])
     
     def test_automatic_id_extraction_from_uri_path(self):
         """Test automatic ID extraction from URI path."""
@@ -42,6 +44,7 @@ class TestGovernmentService(unittest.TestCase):
             description="Passport renewal service"
         )
         self.assertEqual(service.id, "passport-renewal")
+        self.assertEqual(service.keywords, [])  # Should default to empty list
     
     def test_automatic_id_extraction_from_uri_fragment(self):
         """Test automatic ID extraction from URI fragment."""
@@ -72,6 +75,28 @@ class TestGovernmentService(unittest.TestCase):
                 name="Invalid Service",
                 description="URI has no extractable ID"
             )
+    
+    def test_service_creation_with_default_keywords(self):
+        """Test creating a service with default empty keywords."""
+        service = GovernmentService(
+            uri="https://gov.example.com/services/test",
+            id="test-service",
+            name="Test Service",
+            description="A test service"
+            # keywords not specified, should default to empty list
+        )
+        self.assertEqual(service.keywords, [])
+    
+    def test_service_creation_with_none_keywords(self):
+        """Test creating a service with None keywords (should become empty list)."""
+        service = GovernmentService(
+            uri="https://gov.example.com/services/test",
+            id="test-service", 
+            name="Test Service",
+            description="A test service",
+            keywords=None
+        )
+        self.assertEqual(service.keywords, [])
 
 
 class TestGovernmentServicesStore(unittest.TestCase):
@@ -89,31 +114,36 @@ class TestGovernmentServicesStore(unittest.TestCase):
                 uri="https://gov.example.com/services/passport-renewal",
                 id="passport-renewal",
                 name="Passport Renewal Service",
-                description="Online service for renewing expired or expiring passports. Submit documents digitally and track application status."
+                description="Online service for renewing expired or expiring passports. Submit documents digitally and track application status.",
+                keywords=["passport", "renewal", "travel", "documents", "online"]
             ),
             GovernmentService(
                 uri="https://gov.example.com/services/birth-certificate",
                 id="birth-certificate",
                 name="Birth Certificate Request",
-                description="Request certified copies of birth certificates. Online digital application with secure document delivery options."
+                description="Request certified copies of birth certificates. Online digital application with secure document delivery options.",
+                keywords=["birth", "certificate", "vital", "records", "identity"]
             ),
             GovernmentService(
                 uri="https://gov.example.com/services/business-license",
                 id="business-license",
                 name="Business License Application",
-                description="Apply for new business licenses online. Complete application process with digital document submission and approval tracking."
+                description="Apply for new business licenses online. Complete application process with digital document submission and approval tracking.",
+                keywords=["business", "license", "permit", "commercial", "application"]
             ),
             GovernmentService(
                 uri="https://gov.example.com/services/property-tax",
                 id="property-tax",
                 name="Property Tax Payment",
-                description="Pay property taxes online with multiple payment options. View tax history and download receipts instantly."
+                description="Pay property taxes online with multiple payment options. View tax history and download receipts instantly.",
+                keywords=["property", "tax", "payment", "real estate", "municipal"]
             ),
             GovernmentService(
                 uri="https://gov.example.com/services/vehicle-registration",
                 id="vehicle-registration",
                 name="Vehicle Registration Renewal",
-                description="Renew vehicle registration online. Upload insurance documents and receive digital registration confirmation."
+                description="Renew vehicle registration online. Upload insurance documents and receive digital registration confirmation.",
+                keywords=["vehicle", "registration", "automotive", "DMV", "renewal"]
             )
         ]
     
@@ -208,7 +238,8 @@ class TestGovernmentServicesStore(unittest.TestCase):
         
         # Verify all results contain the keyword
         for service in results:
-            searchable_text = f"{service.name} {service.description}".lower()
+            service_keywords_text = " ".join(service.keywords) if service.keywords else ""
+            searchable_text = f"{service.name} {service.description} {service_keywords_text}".lower()
             self.assertIn("online", searchable_text)
     
     def test_search_multiple_keywords(self):
@@ -269,9 +300,38 @@ class TestGovernmentServicesStore(unittest.TestCase):
         results = self.store.search_services_by_keywords(["online"], k=1)
         self.assertLessEqual(len(results), 1)
     
+    def test_search_by_service_keywords(self):
+        """Test searching using the keywords field of services."""
+        self.store.add_services(self.sample_services)
+        
+        # Test search by specific keywords that are in the keywords field
+        results = self.store.search_services_by_keywords(["passport"], k=10)
+        self.assertGreater(len(results), 0)
+        
+        # The passport service should be included since "passport" is in its keywords
+        passport_service = next((s for s in results if s.id == "passport-renewal"), None)
+        self.assertIsNotNone(passport_service)
+        
+        # Test search by keyword that appears in keywords field but not name/description
+        results = self.store.search_services_by_keywords(["travel"], k=10)
+        self.assertGreater(len(results), 0)
+        
+        # Should find passport service due to "travel" keyword
+        passport_service = next((s for s in results if s.id == "passport-renewal"), None)
+        self.assertIsNotNone(passport_service)
+        
+        # Test search by multiple keywords including keywords field
+        results = self.store.search_services_by_keywords(["DMV", "automotive"], k=10)
+        self.assertGreater(len(results), 0)
+        
+        # Should find vehicle registration service
+        vehicle_service = next((s for s in results if s.id == "vehicle-registration"), None)
+        self.assertIsNotNone(vehicle_service)
+    
     def _calculate_keyword_score(self, service, keywords):
         """Helper method to calculate keyword score for a service."""
-        searchable_text = f"{service.name} {service.description}".lower()
+        service_keywords_text = " ".join(service.keywords) if service.keywords else ""
+        searchable_text = f"{service.name} {service.description} {service_keywords_text}".lower()
         score = 0
         for keyword in keywords:
             score += searchable_text.count(keyword.lower())
@@ -294,13 +354,15 @@ class TestGovernmentServicesStoreLocalStorage(unittest.TestCase):
                 uri="https://gov.example.com/services/test1",
                 id="test1",
                 name="Test Service 1",
-                description="First test service"
+                description="First test service",
+                keywords=["test", "sample"]
             ),
             GovernmentService(
                 uri="https://gov.example.com/services/test2",
                 id="test2",
                 name="Test Service 2",
-                description="Second test service"
+                description="Second test service",
+                keywords=["test", "example"]
             )
         ]
     

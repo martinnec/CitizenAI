@@ -22,9 +22,14 @@ class GovernmentService:
     id: str
     name: str
     description: str
+    keywords: List[str] = None
     
     def __post_init__(self):
         """Validate and extract ID from URI if not provided."""
+        # Initialize keywords as empty list if None
+        if self.keywords is None:
+            self.keywords = []
+            
         if not self.id and self.uri:
             parsed = urlparse(self.uri)
             # First try to extract from fragment
@@ -83,7 +88,7 @@ class GovernmentServicesStore:
             k: Number of top results to return (default: 10)
             
         Returns:
-            List of top-K services ordered by keyword frequency in name and description
+            List of top-K services ordered by keyword frequency in name, description, and keywords
         """
         if not keywords:
             return []
@@ -97,8 +102,9 @@ class GovernmentServicesStore:
         service_scores = []
         
         for service in self._services_list:
-            # Combine name and description for searching
-            searchable_text = f"{service.name} {service.description}".lower()
+            # Combine name, description, and keywords for searching
+            service_keywords_text = " ".join(service.keywords) if service.keywords else ""
+            searchable_text = f"{service.name} {service.description} {service_keywords_text}".lower()
             
             # Count keyword occurrences
             keyword_count = 0
@@ -249,7 +255,8 @@ class GovernmentServicesStore:
                         uri=uri,
                         id="",  # Will be auto-extracted from URI in __post_init__
                         name=name,
-                        description=description
+                        description=description,
+                        keywords=[]  # Default to empty keywords list
                     )
                     
                     loaded_services.append(service)
@@ -294,7 +301,8 @@ class GovernmentServicesStore:
                     "uri": service.uri,
                     "id": service.id,
                     "name": service.name,
-                    "description": service.description
+                    "description": service.description,
+                    "keywords": service.keywords if service.keywords else []
                 }
                 services_data.append(service_dict)
             
@@ -343,12 +351,16 @@ class GovernmentServicesStore:
                         print(f"Warning: Skipping service with missing fields: {service_dict}")
                         continue
                     
+                    # Get keywords if present, otherwise default to empty list
+                    keywords = service_dict.get('keywords', [])
+                    
                     # Create GovernmentService object
                     service = GovernmentService(
                         uri=service_dict['uri'],
                         id=service_dict['id'],
                         name=service_dict['name'],
-                        description=service_dict['description']
+                        description=service_dict['description'],
+                        keywords=keywords
                     )
                     
                     loaded_services.append(service)

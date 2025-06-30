@@ -4,8 +4,8 @@ An in-memory store for managing government services specifications with search f
 
 ## Features
 
-- **Service Management**: Store and manage government services with URI, ID, name, and description
-- **Keyword Search**: Search services by keywords with frequency-based ranking
+- **Service Management**: Store and manage government services with URI, ID, name, description, and keywords
+- **Keyword Search**: Search services by keywords with frequency-based ranking across all fields
 - **Service Retrieval**: Get individual services by their ID
 - **External Store Integration**: Load services from Czech government SPARQL endpoint
 - **Local Data Persistence**: Cache services locally as JSON for faster subsequent loads
@@ -19,12 +19,21 @@ A dataclass representing a government service with:
 - `id`: Local application ID (auto-extracted from URI if not provided)
 - `name`: Service name (required)
 - `description`: Service description (required)
+- `keywords`: List of keywords characterizing the service (optional, defaults to empty list)
 
 **Features:**
 - Automatic ID extraction from URI using `urlparse()` if ID is empty
 - Validation ensures ID is always available or raises `ValueError`
 - Smart ID extraction: prioritizes URI fragment, then falls back to last path segment
 - Supports both path-based URIs (`/services/passport-renewal`) and fragment-based URIs (`/services#passport-renewal`)
+- **Keywords initialization**: Automatically initializes `keywords` as empty list if `None` is provided
+
+**Keywords Field:**
+The `keywords` field is a `List[str]` that allows you to:
+- Categorize services with relevant terms (e.g., ["passport", "travel", "documents"])
+- Improve search discoverability with domain-specific terminology
+- Support multilingual or synonym-based search enhancement
+- Default to empty list if not provided or set to `None`
 
 ### GovernmentServicesStore
 The main store class providing:
@@ -33,7 +42,7 @@ The main store class providing:
 - `load_services()`: Smart loading with fallback strategy (local file → external SPARQL endpoint)
 
 **Core Methods:**
-- `search_services_by_keywords(keywords, k=10)`: Search top-K services by keywords with frequency-based ranking
+- `search_services_by_keywords(keywords, k=10)`: Search top-K services by keywords with frequency-based ranking across name, description, and keywords fields
 - `get_service_by_id(service_id)`: Retrieve service by ID, returns `Optional[GovernmentService]`
 
 **Service Management:**
@@ -80,7 +89,8 @@ service = GovernmentService(
     uri="https://gov.example.com/services/passport-renewal",
     id="",  # Will be auto-extracted as "passport-renewal"
     name="Passport Renewal Service",
-    description="Online service for renewing passports"
+    description="Online service for renewing passports",
+    keywords=["passport", "travel", "documents", "renewal", "identity"]
 )
 store.add_service(service)
 
@@ -90,16 +100,22 @@ services = [
         uri="https://gov.example.com/services/driver-license",
         id="driver-license",
         name="Driver License Renewal",
-        description="Renew driver license online"
+        description="Renew driver license online",
+        keywords=["driver", "license", "DMV", "driving", "renewal"]
     ),
     # ... more services
 ]
 store.add_services(services)
 
-# Search services (case-insensitive, frequency-ranked)
+# Search services (case-insensitive, frequency-ranked across all fields)
 results = store.search_services_by_keywords(["online", "digital"], k=5)
 for service in results:
     print(f"{service.name}: {service.description}")
+    print(f"Keywords: {', '.join(service.keywords)}")
+
+# Search by specific keywords
+travel_services = store.search_services_by_keywords(["travel"], k=3)
+dmv_services = store.search_services_by_keywords(["DMV"], k=3)
 
 # Get service by ID
 service = store.get_service_by_id("passport-renewal")
@@ -135,16 +151,22 @@ The `load_services()` method implements a smart fallback strategy:
 The `search_services_by_keywords()` method implements intelligent keyword matching:
 
 1. **Case-insensitive matching**: All keywords are normalized to lowercase
-2. **Frequency scoring**: Services are ranked by total keyword occurrences in name + description
-3. **Regex-based matching**: Uses `re.escape()` for safe pattern matching
-4. **Filtering**: Only returns services containing at least one keyword
-5. **Sorting**: Results sorted by frequency (descending), then alphabetically by name
-6. **Top-K results**: Returns up to K best matches (default: 10)
+2. **Multi-field search**: Searches across service name, description, and keywords fields
+3. **Frequency scoring**: Services are ranked by total keyword occurrences in all searchable fields
+4. **Regex-based matching**: Uses `re.escape()` for safe pattern matching
+5. **Filtering**: Only returns services containing at least one keyword
+6. **Sorting**: Results sorted by frequency (descending), then alphabetically by name
+7. **Top-K results**: Returns up to K best matches (default: 10)
+
+**Search Fields:**
+- Service name
+- Service description  
+- Service keywords (list of strings)
 
 **Example:**
-- Service: "Online Tax Filing - File taxes online with digital assistance" 
-- Keywords: ["online", "digital"]
-- Score: 2 (one "online" + one "digital")
+- Service: "Online Tax Filing" with description "File taxes online with digital assistance" and keywords ["tax", "IRS", "digital"]
+- Keywords: ["online", "digital"] 
+- Score: 3 (one "online" in description + one "digital" in description + one "digital" in keywords)
 
 ## Dependencies
 
