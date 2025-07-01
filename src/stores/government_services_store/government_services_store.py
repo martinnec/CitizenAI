@@ -182,9 +182,9 @@ class GovernmentServicesStore:
                 existing_data = self._collection.get()
                 if existing_data['ids']:
                     self._collection.delete(ids=existing_data['ids'])
-                print("Cleared embeddings from ChromaDB collection.")
+                print("[DEBUG] Cleared embeddings from ChromaDB collection.")
             except Exception as e:
-                print(f"Warning: Failed to clear ChromaDB collection: {e}")
+                print(f"[DEBUG] Warning: Failed to clear ChromaDB collection: {e}")
     
     def __len__(self) -> int:
         """Return the number of services in the store."""
@@ -221,7 +221,7 @@ class GovernmentServicesStore:
             try:
                 self._load_from_local()
             except Exception as local_error:
-                print(f"Warning: Failed to load from local file: {local_error}")
+                print(f"[DEBUG] Warning: Failed to load from local file: {local_error}")
                 # Clear any partially loaded data before trying external store
                 self.clear()
         
@@ -233,11 +233,11 @@ class GovernmentServicesStore:
                 
                 # Compute embeddings for semantic search (only when loading from external store)
                 try:
-                    print("Computing embeddings for semantic search...")
+                    print("[DEBUG] Computing embeddings for semantic search...")
                     self._compute_embeddings()
                 except Exception as embedding_error:
-                    print(f"Warning: Failed to compute embeddings: {embedding_error}")
-                    print("Semantic search will not be available until embeddings are computed manually.")
+                    print(f"[DEBUG] Warning: Failed to compute embeddings: {embedding_error}")
+                    print("[DEBUG] Semantic search will not be available until embeddings are computed manually.")
                     
             except Exception as external_error:
                 raise RuntimeError(f"Failed to load services from both local and external sources. "
@@ -303,15 +303,15 @@ class GovernmentServicesStore:
                     
                 except Exception as service_error:
                     # Log individual service creation errors but continue processing
-                    print(f"Warning: Failed to create service from row {row}: {service_error}")
+                    print(f"[DEBUG] Warning: Failed to create service from row {row}: {service_error}")
                     continue
             
             # Add all successfully created services to the store
             if loaded_services:
                 self.add_services(loaded_services)
-                print(f"Successfully loaded {len(loaded_services)} services from external SPARQL store")
+                print(f"[DEBUG] Successfully loaded {len(loaded_services)} services from external SPARQL store")
             else:
-                print("No services were loaded from the external store")
+                print("[DEBUG] No services were loaded from the external store")
                 
         except Exception as e:
             raise RuntimeError(f"Failed to load services from external store: {e}")
@@ -350,7 +350,7 @@ class GovernmentServicesStore:
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(services_data, f, indent=2, ensure_ascii=False)
             
-            print(f"Successfully stored {len(services_data)} services to {output_file}")
+            print(f"[DEBUG] Successfully stored {len(services_data)} services to {output_file}")
             
         except Exception as e:
             raise RuntimeError(f"Failed to store services to local file: {e}")
@@ -388,7 +388,7 @@ class GovernmentServicesStore:
                 try:
                     # Validate required fields
                     if not all(key in service_dict for key in ['uri', 'id', 'name', 'description']):
-                        print(f"Warning: Skipping service with missing fields: {service_dict}")
+                        print(f"[DEBUG] Warning: Skipping service with missing fields: {service_dict}")
                         continue
                     
                     # Get keywords if present, otherwise default to empty list
@@ -407,15 +407,15 @@ class GovernmentServicesStore:
                     
                 except Exception as service_error:
                     # Log individual service creation errors but continue processing
-                    print(f"Warning: Failed to create service from data {service_dict}: {service_error}")
+                    print(f"[DEBUG] Warning: Failed to create service from data {service_dict}: {service_error}")
                     continue
             
             # Add all successfully created services to the store
             if loaded_services:
                 self.add_services(loaded_services)
-                print(f"Successfully loaded {len(loaded_services)} services from local file")
+                print(f"[DEBUG] Successfully loaded {len(loaded_services)} services from local file")
             else:
-                print("No services were loaded from the local file")
+                print("[DEBUG] No services were loaded from the local file")
                 
         except FileNotFoundError:
             raise
@@ -428,7 +428,7 @@ class GovernmentServicesStore:
         """
         details_file_path = Path("data/stores/government_services_store/government_services_details.json")
         if not details_file_path.exists():
-            print(f"Warning: Auxiliary details file not found at {details_file_path}")
+            print(f"[DEBUG] Warning: Auxiliary details file not found at {details_file_path}")
             return
 
         try:
@@ -436,7 +436,7 @@ class GovernmentServicesStore:
                 details_data = json.load(f)
 
             if "položky" not in details_data:
-                print("Warning: 'položky' key not found in auxiliary details file.")
+                print("[DEBUG] Warning: 'položky' key not found in auxiliary details file.")
                 return
 
             details_map = {item['kód']: item for item in details_data["položky"] if 'kód' in item}
@@ -457,12 +457,12 @@ class GovernmentServicesStore:
                             if 'cs' in keyword_item and keyword_item['cs']:
                                 service.keywords.append(keyword_item['cs'])
             
-            print("Successfully loaded and merged auxiliary details.")
+            print("[DEBUG] Successfully loaded and merged auxiliary details.")
 
         except json.JSONDecodeError:
-            print(f"Warning: Could not decode JSON from {details_file_path}")
+            print(f"[DEBUG] Warning: Could not decode JSON from {details_file_path}")
         except Exception as e:
-            print(f"An error occurred while loading auxiliary details: {e}")
+            print(f"[DEBUG] An error occurred while loading auxiliary details: {e}")
 
     def get_service_detail_by_id(self, service_id: str) -> Optional[str]:
         """
@@ -485,8 +485,48 @@ class GovernmentServicesStore:
                 return None
             for item in details_data["položky"]:
                 if item.get("kód") == service_id:
-                    output_str = f"Přínos: {self._remove_html_tags(item['jaký-má-služba-benefit']['cs'])}\nPro koho je služba určena: {self._remove_html_tags(item['týká-se-vás-to-pokud']['cs'])}\nCo je výstupem nebo výsledkem služby: {self._remove_html_tags(item['výstup-služby']['cs'])}"
-                    print(f"[DEBUG] Service with id {service_id} has detailed description: {output_str}")
+                    # Helper function to safely get nested value
+                    def safe_get_cs(key):
+                        if key in item and item[key] and isinstance(item[key], dict) and 'cs' in item[key] and item[key]['cs']:
+                            return self._remove_html_tags(item[key]['cs'])
+                        return "Není k dispozici"
+                    
+                    # Build output string with safe access to all keys
+                    output_parts = []
+                    
+                    benefit = safe_get_cs('jaký-má-služba-benefit')
+                    output_parts.append(f"Přínos: {benefit}")
+                    
+                    faq = safe_get_cs('časté-dotazy')
+                    output_parts.append(f"Časté dotazy: {faq}")
+                    
+                    target_group = safe_get_cs('týká-se-vás-to-pokud')
+                    output_parts.append(f"Pro koho je služba určena: {target_group}")
+                    
+                    # Electronic processing - combine two fields if both exist
+                    electronic_where = safe_get_cs('kde-a-jak-službu-řešit-el')
+                    electronic_how = safe_get_cs('způsob-vyřízení-el')
+                    if electronic_where != "Není k dispozici" or electronic_how != "Není k dispozici":
+                        electronic_combined = f"{electronic_where} {electronic_how}".strip()
+                        if electronic_combined != "Není k dispozici Není k dispozici":
+                            output_parts.append(f"Kde a jak službu řešit elektronicky: {electronic_combined}")
+                    
+                    # Personal processing - combine two fields if both exist
+                    personal_where = safe_get_cs('kde-a-jak-službu-řešit-os')
+                    personal_how = safe_get_cs('způsob-vyřízení-os')
+                    if personal_where != "Není k dispozici" or personal_how != "Není k dispozici":
+                        personal_combined = f"{personal_where} {personal_how}".strip()
+                        if personal_combined != "Není k dispozici Není k dispozici":
+                            output_parts.append(f"Kde a jak službu řešit osobně: {personal_combined}")
+                    
+                    when_to_handle = safe_get_cs('kdy-službu-řešit')
+                    output_parts.append(f"Kdy službu řešit: {when_to_handle}")
+                    
+                    service_output = safe_get_cs('výstup-služby')
+                    output_parts.append(f"Co je výstupem nebo výsledkem služby: {service_output}")
+                    
+                    output_str = "\n                    ".join(output_parts)
+                    print(f"[DEBUG] Service with id {service_id} has detailed description and it was successfully retrieved.")
                     return output_str
             print(f"[DEBUG] Service with id {service_id} not found in details file.")
             return None
@@ -494,6 +534,65 @@ class GovernmentServicesStore:
             print(f"[DEBUG] Error reading details file: {e}")
             return None
         
+    def get_service_howto_by_id(self, service_id: str) -> Optional[str]:
+        """
+        Return how to handle the service electronically for the service with the given ID from
+        data/stores/government_services_store/government_services_details.json.
+        
+        Args:
+            service_id: The ID of the service to retrieve electronic handling info for.
+            
+        Returns:
+            A string with electronic handling instructions if found, otherwise None.
+        """
+        details_file_path = Path("data/stores/government_services_store/government_services_details.json")
+        if not details_file_path.exists():
+            print(f"[DEBUG] Details file not found at {details_file_path}")
+            return None
+        
+        try:
+            with open(details_file_path, 'r', encoding='utf-8') as f:
+                details_data = json.load(f)
+            
+            if "položky" not in details_data:
+                print("[DEBUG] 'položky' key not found in details file.")
+                return None
+            
+            for item in details_data["položky"]:
+                if item.get("kód") == service_id:
+                    # Helper function to safely get nested value
+                    def safe_get_cs(key):
+                        if key in item and item[key] and isinstance(item[key], dict) and 'cs' in item[key] and item[key]['cs']:
+                            return self._remove_html_tags(item[key]['cs'])
+                        return None
+                    
+                    # Get electronic processing fields
+                    electronic_where = safe_get_cs('kde-a-jak-službu-řešit-el')
+                    electronic_how = safe_get_cs('způsob-vyřízení-el')
+                    
+                    # Combine the fields if they exist
+                    if electronic_where or electronic_how:
+                        parts = []
+                        if electronic_where:
+                            parts.append(electronic_where)
+                        if electronic_how:
+                            parts.append(electronic_how)
+                        
+                        combined = "Kde a jak službu řešit elektronicky: " + " ".join(parts).strip()
+                        if combined:
+                            print(f"[DEBUG] Service with id {service_id} has electronic handling info which was successfully retrieved.")
+                            return combined
+                    
+                    print(f"[DEBUG] Service with id {service_id} has no electronic handling information.")
+                    return None
+            
+            print(f"[DEBUG] Service with id {service_id} not found in details file.")
+            return None
+            
+        except Exception as e:
+            print(f"[DEBUG] Error reading details file: {e}")
+            return None
+
     def _remove_html_tags(self, text: str) -> str:
         """
         Remove HTML tags from a string.
@@ -526,8 +625,7 @@ class GovernmentServicesStore:
             persist_directory.mkdir(parents=True, exist_ok=True)
             
             self._chroma_client = chromadb.PersistentClient(
-                path=str(persist_directory),
-                settings=Settings(anonymized_telemetry=False)
+                path=str(persist_directory)
             )
             
             # Get or create collection for government services
@@ -536,7 +634,7 @@ class GovernmentServicesStore:
                 metadata={"description": "Government services embeddings for semantic search"}
             )
             
-            print(f"Semantic search initialized. Collection has {self._collection.count()} embeddings.")
+            print(f"[DEBUG] Semantic search initialized. Collection has {self._collection.count()} embeddings.")
             
         except Exception as e:
             raise RuntimeError(f"Failed to initialize semantic search: {e}")
@@ -569,7 +667,7 @@ class GovernmentServicesStore:
             RuntimeError: If OpenAI API key is not set or embedding computation fails
         """
         if not self._services_list:
-            print("No services to compute embeddings for.")
+            print("[DEBUG] No services to compute embeddings for.")
             return
         
         # Initialize semantic search components if not already done
@@ -593,11 +691,11 @@ class GovernmentServicesStore:
             ]
             
             if not services_to_embed:
-                print("All services already have embeddings computed.")
+                print("[DEBUG] All services already have embeddings computed.")
                 self._embeddings_computed = True
                 return
             
-            print(f"Computing embeddings for {len(services_to_embed)} services...")
+            print(f"[DEBUG] Computing embeddings for {len(services_to_embed)} services...")
             
             # Process services in batches of 500 to avoid token limits
             batch_size = 500
@@ -608,7 +706,7 @@ class GovernmentServicesStore:
                 batch_number = (i // batch_size) + 1
                 total_batches = (len(services_to_embed) + batch_size - 1) // batch_size
                 
-                print(f"Processing batch {batch_number}/{total_batches} ({len(batch_services)} services)...")
+                print(f"[DEBUG] Processing batch {batch_number}/{total_batches} ({len(batch_services)} services)...")
                 
                 # Prepare data for this batch
                 service_texts = []
@@ -644,11 +742,11 @@ class GovernmentServicesStore:
                 )
                 
                 total_processed += len(batch_services)
-                print(f"Batch {batch_number}/{total_batches} completed. Total processed: {total_processed}/{len(services_to_embed)}")
+                print(f"[DEBUG] Batch {batch_number}/{total_batches} completed. Total processed: {total_processed}/{len(services_to_embed)}")
             
             self._embeddings_computed = True
-            print(f"Successfully computed and stored embeddings for {len(services_to_embed)} services.")
-            print(f"Total embeddings in collection: {self._collection.count()}")
+            print(f"[DEBUG] Successfully computed and stored embeddings for {len(services_to_embed)} services.")
+            print(f"[DEBUG] Total embeddings in collection: {self._collection.count()}")
             
         except Exception as e:
             raise RuntimeError(f"Failed to compute embeddings: {e}")
@@ -719,6 +817,74 @@ class GovernmentServicesStore:
         except Exception as e:
             raise RuntimeError(f"Failed to perform semantic search: {e}")
     
+    def get_service_steps_by_id(self, service_id: str) -> List[str]:
+        """
+        Retrieve the list of steps for a service using SPARQL query.
+        
+        Args:
+            service_id: The ID of the service to retrieve steps for
+            
+        Returns:
+            List of strings, each representing a step in format "step_name: step_description"
+            
+        Raises:
+            RuntimeError: If the SPARQL query fails
+        """
+        if not service_id:
+            return []
+        
+        sparql_endpoint = "https://rpp-opendata.egon.gov.cz/odrpp/sparql/"
+        
+        sparql_str = f"""
+        PREFIX rppl: <https://slovník.gov.cz/legislativní/sbírka/111/2009/pojem/>
+        PREFIX rppa: <https://slovník.gov.cz/agendový/104/pojem/>
+        SELECT ?step ?name ?description
+        WHERE {{
+          SERVICE <{sparql_endpoint}> {{
+            <https://rpp-opendata.egon.gov.cz/odrpp/zdroj/služba/{service_id}> rppa:skládá-se-z-úkonu ?step .
+            
+            ?step rppa:je-digitální true .
+            
+            ?step rppa:má-název-úkonu-služby ?name ;
+                  rppa:má-popis-úkonu-služby ?description ;
+                  rppa:je-realizován-kanálem/rppa:má-typ-obslužného-kanálu <https://rpp-opendata.egon.gov.cz/odrpp/zdroj/typ-obslužného-kanálu/DATOVA_SCHRANKA>
+          }}
+        }}
+        ORDER BY ?step
+        """
+        
+        try:
+            g = Graph()
+            results = g.query(sparql_str)
+            
+            steps = []
+            for row in results:
+                try:
+                    name = str(row.name) if row.name else ""
+                    description = str(row.description) if row.description else ""
+                    
+                    # Skip steps with missing essential data
+                    if not name:
+                        continue
+                    
+                    # Format as "name: description"
+                    if description:
+                        step_text = f"{name}: {description}"
+                    else:
+                        step_text = name
+                    
+                    steps.append(step_text)
+                    
+                except Exception as step_error:
+                    print(f"[DEBUG] Warning: Failed to process step from row {row}: {step_error}")
+                    continue
+            
+            print(f"[DEBUG] Successfully retrieved {len(steps)} steps for service {service_id}")
+            return steps
+            
+        except Exception as e:
+            raise RuntimeError(f"[DEBUG] Failed to retrieve steps for service {service_id}: {e}")
+
     def get_embedding_statistics(self) -> Dict[str, any]:
         """
         Get statistics about the current embeddings in the store.
@@ -747,3 +913,4 @@ class GovernmentServicesStore:
             "total_services": total_services,
             "coverage_percentage": round(coverage, 2)
         }
+

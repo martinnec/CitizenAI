@@ -36,14 +36,8 @@ def main():
         
         # Example semantic searches
         test_queries = [
-            "I need to register my newborn baby",
-            "I want to start a new business",
-            "I need help with unemployment benefits",
-            "I need to register my car",
-            "I want to get married",
-            "I need to renew my passport",
-            "I want to apply for social housing",
-            "I need medical care for elderly parent"
+            "Potřebuji zaregistrovat nové letadlo",
+            "Potřebuji zapsat letadlo do registru",
         ]
         
         print("\n" + "="*60)
@@ -75,7 +69,7 @@ def main():
         print("COMPARISON: SEMANTIC vs KEYWORD SEARCH")
         print("="*60)
         
-        test_query = "I need to register my newborn baby"
+        test_query = "Potřebuji zaregistrovat nové letadlo"
         print(f"\nTest query: '{test_query}'")
         
         print("\nSemantic Search Results:")
@@ -83,8 +77,8 @@ def main():
         for i, service in enumerate(semantic_results, 1):
             print(f"{i}. {service.name}")
         
-        print("\nKeyword Search Results (using words: baby, newborn, register):")
-        keyword_results = store.search_services_by_keywords(["baby", "newborn", "register"], k=5)
+        print("\nKeyword Search Results (using words: letadlo, registrace):")
+        keyword_results = store.search_services_by_keywords(["letadlo", "registrace"], k=5)
         for i, service in enumerate(keyword_results, 1):
             print(f"{i}. {service.name}")
         
