@@ -14,6 +14,10 @@ from rdflib import Graph
 import json
 import os
 from pathlib import Path
+import openai
+import chromadb
+from chromadb.config import Settings
+import hashlib
 
 @dataclass
 class GovernmentService:
@@ -57,6 +61,12 @@ class GovernmentServicesStore:
         """Initialize an empty services store."""
         self._services: Dict[str, GovernmentService] = {}
         self._services_list: List[GovernmentService] = []
+        
+        # Semantic search components
+        self._openai_client = None
+        self._chroma_client = None
+        self._collection = None
+        self._embeddings_computed = False
     
     def add_service(self, service: GovernmentService) -> None:
         """
@@ -90,13 +100,16 @@ class GovernmentServicesStore:
         Returns:
             List of top-K services ordered by keyword frequency in name, description, and keywords
         """
+        print(f"[DEBUG] search_services_by_keywords called with keywords={keywords}, k={k}")
         if not keywords:
+            print("[DEBUG] No keywords provided. Returning empty list.")
             return []
         
         # Normalize keywords to lowercase for case-insensitive search
         normalized_keywords = [keyword.lower().strip() for keyword in keywords if keyword.strip()]
         
         if not normalized_keywords:
+            print("[DEBUG] No valid normalized keywords after processing. Returning empty list.")
             return []
         
         service_scores = []
@@ -121,6 +134,8 @@ class GovernmentServicesStore:
         # Sort by keyword frequency (descending) and then by service name for consistency
         service_scores.sort(key=lambda x: (-x[1], x[0].name.lower()))
         
+        found_count = len(service_scores[:k])
+        print(f"[DEBUG] search_services_by_keywords finished. Number of services found: {found_count}")
         # Return top-K services
         return [service for service, _ in service_scores[:k]]
     
@@ -155,9 +170,21 @@ class GovernmentServicesStore:
         return len(self._services)
     
     def clear(self) -> None:
-        """Clear all services from the store."""
+        """Clear all services from the store and reset semantic search state."""
         self._services.clear()
         self._services_list.clear()
+        self._embeddings_computed = False
+        
+        # Clear ChromaDB collection if it exists
+        if self._collection:
+            try:
+                # Delete all embeddings from the collection
+                existing_data = self._collection.get()
+                if existing_data['ids']:
+                    self._collection.delete(ids=existing_data['ids'])
+                print("Cleared embeddings from ChromaDB collection.")
+            except Exception as e:
+                print(f"Warning: Failed to clear ChromaDB collection: {e}")
     
     def __len__(self) -> int:
         """Return the number of services in the store."""
@@ -174,7 +201,10 @@ class GovernmentServicesStore:
         Algorithm:
         1) If the current list of services is non-empty, clear it
         2) If the local file exists, load from local file
-        3) Otherwise, load from external SPARQL store
+        3) Otherwise, load from external SPARQL store and compute embeddings
+        
+        Note: Embeddings are only computed when loading from external store,
+        not when loading from local cache for performance reasons.
         
         Raises:
             RuntimeError: If both local and external loading fail
@@ -190,19 +220,28 @@ class GovernmentServicesStore:
         if local_file_path.exists():
             try:
                 self._load_from_local()
-                return
             except Exception as local_error:
                 print(f"Warning: Failed to load from local file: {local_error}")
                 # Clear any partially loaded data before trying external store
                 self.clear()
         
         # Step 3: If local file doesn't exist or loading failed, load from external store
-        try:
-            self._load_from_external_store()
-            self._load_auxiliary_details()
-        except Exception as external_error:
-            raise RuntimeError(f"Failed to load services from both local and external sources. "
-                             f"External error: {external_error}")
+        if len(self._services) == 0:
+            try:
+                self._load_from_external_store()
+                self._load_auxiliary_details()
+                
+                # Compute embeddings for semantic search (only when loading from external store)
+                try:
+                    print("Computing embeddings for semantic search...")
+                    self._compute_embeddings()
+                except Exception as embedding_error:
+                    print(f"Warning: Failed to compute embeddings: {embedding_error}")
+                    print("Semantic search will not be available until embeddings are computed manually.")
+                    
+            except Exception as external_error:
+                raise RuntimeError(f"Failed to load services from both local and external sources. "
+                                 f"External error: {external_error}")
     
     def _load_from_external_store(self) -> None:
         """
@@ -424,3 +463,287 @@ class GovernmentServicesStore:
             print(f"Warning: Could not decode JSON from {details_file_path}")
         except Exception as e:
             print(f"An error occurred while loading auxiliary details: {e}")
+
+    def get_service_detail_by_id(self, service_id: str) -> Optional[str]:
+        """
+        Return additional details about the serivce as a string for the service with the given ID from
+        data/stores/government_services_store/government_services_details.json.
+        Args:
+            service_id: The ID of the service to retrieve details for.
+        Returns:
+            A string with the service detail if found, otherwise None.
+        """
+        details_file_path = Path("data/stores/government_services_store/government_services_details.json")
+        if not details_file_path.exists():
+            print(f"[DEBUG] Details file not found at {details_file_path}")
+            return None
+        try:
+            with open(details_file_path, 'r', encoding='utf-8') as f:
+                details_data = json.load(f)
+            if "položky" not in details_data:
+                print("[DEBUG] 'položky' key not found in details file.")
+                return None
+            for item in details_data["položky"]:
+                if item.get("kód") == service_id:
+                    output_str = f"Přínos: {self._remove_html_tags(item['jaký-má-služba-benefit']['cs'])}\nPro koho je služba určena: {self._remove_html_tags(item['týká-se-vás-to-pokud']['cs'])}\nCo je výstupem nebo výsledkem služby: {self._remove_html_tags(item['výstup-služby']['cs'])}"
+                    print(f"[DEBUG] Service with id {service_id} has detailed description: {output_str}")
+                    return output_str
+            print(f"[DEBUG] Service with id {service_id} not found in details file.")
+            return None
+        except Exception as e:
+            print(f"[DEBUG] Error reading details file: {e}")
+            return None
+        
+    def _remove_html_tags(self, text: str) -> str:
+        """
+        Remove HTML tags from a string.
+        
+        Args:
+            text: The input string potentially containing HTML tags
+            
+        Returns:
+            The input string with HTML tags removed
+        """
+        return re.sub(r'<[^>]+>', '', text) if text else text
+    
+    def _initialize_semantic_search(self) -> None:
+        """
+        Initialize the OpenAI client and ChromaDB for semantic search.
+        
+        Raises:
+            RuntimeError: If OpenAI API key is not set or initialization fails
+        """
+        try:
+            # Initialize OpenAI client
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                raise RuntimeError("OPENAI_API_KEY environment variable is not set")
+            
+            self._openai_client = openai.OpenAI(api_key=api_key)
+            
+            # Initialize ChromaDB with persistent storage
+            persist_directory = Path("data/stores/government_services_store/chromadb")
+            persist_directory.mkdir(parents=True, exist_ok=True)
+            
+            self._chroma_client = chromadb.PersistentClient(
+                path=str(persist_directory),
+                settings=Settings(anonymized_telemetry=False)
+            )
+            
+            # Get or create collection for government services
+            self._collection = self._chroma_client.get_or_create_collection(
+                name="government_services",
+                metadata={"description": "Government services embeddings for semantic search"}
+            )
+            
+            print(f"Semantic search initialized. Collection has {self._collection.count()} embeddings.")
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize semantic search: {e}")
+    
+    def _get_service_text_for_embedding(self, service: GovernmentService) -> str:
+        """
+        Get the concatenated text representation of a service for embedding.
+        
+        Args:
+            service: The GovernmentService object
+            
+        Returns:
+            Concatenated string of name, description, and keywords
+        """
+        keywords_text = " ".join(service.keywords) if service.keywords else ""
+        return f"{service.name} {service.description} {keywords_text}".strip()
+    
+    def _compute_embeddings(self) -> None:
+        """
+        Compute embeddings for all services and store them in ChromaDB with persistence.
+        
+        This method:
+        1. Initializes semantic search components if not already done
+        2. Computes embeddings for all services using OpenAI text-embedding-3-large
+        3. Processes services in batches of 500 to avoid token-per-minute limits
+        4. Stores embeddings in ChromaDB with service metadata
+        5. Handles incremental updates (only computes embeddings for new services)
+        
+        Raises:
+            RuntimeError: If OpenAI API key is not set or embedding computation fails
+        """
+        if not self._services_list:
+            print("No services to compute embeddings for.")
+            return
+        
+        # Initialize semantic search components if not already done
+        if not self._openai_client or not self._collection:
+            self._initialize_semantic_search()
+        
+        try:
+            # Get existing service IDs in the collection to avoid recomputing
+            existing_ids = set()
+            try:
+                existing_data = self._collection.get()
+                existing_ids = set(existing_data['ids']) if existing_data['ids'] else set()
+            except Exception:
+                # Collection might be empty or not exist yet
+                pass
+            
+            # Filter services that need embeddings computed
+            services_to_embed = [
+                service for service in self._services_list 
+                if service.id not in existing_ids
+            ]
+            
+            if not services_to_embed:
+                print("All services already have embeddings computed.")
+                self._embeddings_computed = True
+                return
+            
+            print(f"Computing embeddings for {len(services_to_embed)} services...")
+            
+            # Process services in batches of 500 to avoid token limits
+            batch_size = 500
+            total_processed = 0
+            
+            for i in range(0, len(services_to_embed), batch_size):
+                batch_services = services_to_embed[i:i + batch_size]
+                batch_number = (i // batch_size) + 1
+                total_batches = (len(services_to_embed) + batch_size - 1) // batch_size
+                
+                print(f"Processing batch {batch_number}/{total_batches} ({len(batch_services)} services)...")
+                
+                # Prepare data for this batch
+                service_texts = []
+                service_ids = []
+                service_metadata = []
+                
+                for service in batch_services:
+                    text = self._get_service_text_for_embedding(service)
+                    service_texts.append(text)
+                    service_ids.append(service.id)
+                    service_metadata.append({
+                        "name": service.name,
+                        "uri": service.uri,
+                        "description": service.description[:500],  # Limit description length for metadata
+                        "keywords_count": len(service.keywords) if service.keywords else 0
+                    })
+                
+                # Compute embeddings for this batch using OpenAI API
+                embeddings_response = self._openai_client.embeddings.create(
+                    input=service_texts,
+                    model="text-embedding-3-large"
+                )
+                
+                # Extract embeddings from response
+                embeddings = [embedding.embedding for embedding in embeddings_response.data]
+                
+                # Store embeddings for this batch in ChromaDB
+                self._collection.add(
+                    embeddings=embeddings,
+                    documents=service_texts,
+                    ids=service_ids,
+                    metadatas=service_metadata
+                )
+                
+                total_processed += len(batch_services)
+                print(f"Batch {batch_number}/{total_batches} completed. Total processed: {total_processed}/{len(services_to_embed)}")
+            
+            self._embeddings_computed = True
+            print(f"Successfully computed and stored embeddings for {len(services_to_embed)} services.")
+            print(f"Total embeddings in collection: {self._collection.count()}")
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to compute embeddings: {e}")
+    
+    def search_services_semantically(self, query: str, k: int = 10) -> List[GovernmentService]:
+        """
+        Search for services semantically similar to the input query.
+        
+        Args:
+            query: Input string describing a life situation or service need
+            k: Number of top results to return (default: 10)
+            
+        Returns:
+            List of top-K most semantically similar services
+            
+        Raises:
+            RuntimeError: If embeddings haven't been computed or search fails
+        """
+        print(f"[DEBUG] search_services_semantically called with query='{query}', k={k}")
+        
+        if not query.strip():
+            print("[DEBUG] Empty query provided. Returning empty list.")
+            return []
+        
+        # Initialize semantic search components if not already done
+        if not self._openai_client or not self._collection:
+            self._initialize_semantic_search()
+        
+        # Ensure embeddings are computed
+        if not self._embeddings_computed or self._collection.count() == 0:
+            print("[DEBUG] Embeddings not computed yet. Computing embeddings first...")
+            self._compute_embeddings()
+        
+        try:
+            # Compute embedding for the query
+            query_embedding_response = self._openai_client.embeddings.create(
+                input=[query],
+                model="text-embedding-3-large"
+            )
+            query_embedding = query_embedding_response.data[0].embedding
+            
+            # Search for similar services in ChromaDB
+            results = self._collection.query(
+                query_embeddings=[query_embedding],
+                n_results=min(k, self._collection.count())
+            )
+            
+            # Extract service IDs from results
+            if not results['ids'] or not results['ids'][0]:
+                print("[DEBUG] No semantic search results found.")
+                return []
+            
+            service_ids = results['ids'][0]
+            distances = results['distances'][0] if results['distances'] else []
+            
+            # Get corresponding services from the store
+            matching_services = []
+            for i, service_id in enumerate(service_ids):
+                service = self.get_service_by_id(service_id)
+                if service:
+                    matching_services.append(service)
+                    if distances:
+                        print(f"[DEBUG] Found service '{service.name}' with distance {distances[i]:.4f}")
+            
+            print(f"[DEBUG] search_services_semantically finished. Found {len(matching_services)} services.")
+            return matching_services
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to perform semantic search: {e}")
+    
+    def get_embedding_statistics(self) -> Dict[str, any]:
+        """
+        Get statistics about the current embeddings in the store.
+        
+        Returns:
+            Dictionary with embedding statistics
+        """
+        if not self._collection:
+            try:
+                self._initialize_semantic_search()
+            except Exception:
+                return {
+                    "embeddings_computed": False,
+                    "total_embeddings": 0,
+                    "total_services": len(self._services_list),
+                    "coverage_percentage": 0.0
+                }
+        
+        total_embeddings = self._collection.count()
+        total_services = len(self._services_list)
+        coverage = (total_embeddings / total_services * 100) if total_services > 0 else 0
+        
+        return {
+            "embeddings_computed": self._embeddings_computed,
+            "total_embeddings": total_embeddings,
+            "total_services": total_services,
+            "coverage_percentage": round(coverage, 2)
+        }

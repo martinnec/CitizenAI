@@ -50,6 +50,52 @@ def demonstrate_loading_strategy():
         return store
 
 
+def demonstrate_semantic_search(store: GovernmentServicesStore):
+    """Demonstrate semantic search functionality."""
+    print("=" * 60)
+    print("2. SEMANTIC SEARCH DEMONSTRATION")
+    print("=" * 60)
+    
+    # Check if we have services and embeddings
+    if store.get_services_count() == 0:
+        print("No services loaded. Skipping semantic search demonstration.")
+        return
+    
+    # Check embedding statistics
+    stats = store.get_embedding_statistics()
+    print(f"Embedding statistics: {stats}")
+    
+    if not stats['embeddings_computed']:
+        print("\nNote: Semantic search requires OpenAI API key to be set.")
+        print("Set the OPENAI_API_KEY environment variable to enable semantic search.")
+        return
+    
+    # Example semantic searches
+    test_queries = [
+        "I need to register my newborn baby",
+        "I want to start a small business",
+        "I need help with unemployment benefits",
+        "I lost my identity document",
+        "I want to get married"
+    ]
+    
+    print("\nPerforming semantic searches for various life situations:")
+    print("-" * 50)
+    
+    for query in test_queries:
+        print(f"\n🔍 Query: '{query}'")
+        try:
+            results = store.search_services_semantically(query, k=3)
+            if results:
+                for i, service in enumerate(results, 1):
+                    print(f"  {i}. {service.name}")
+                    print(f"     {service.description[:80]}...")
+            else:
+                print("  No relevant services found.")
+        except Exception as e:
+            print(f"  Error: {e}")
+            break
+
 def demonstrate_manual_service_creation(store):
     """Demonstrate manual service creation and management."""
     print("=" * 60)
@@ -337,19 +383,22 @@ def main():
     # 1. Demonstrate smart loading strategy
     store = demonstrate_loading_strategy()
     
-    # 2. Demonstrate manual service creation and management
+    # 2. Demonstrate semantic search capabilities
+    demonstrate_semantic_search(store)
+    
+    # 3. Demonstrate manual service creation and management
     store = demonstrate_manual_service_creation(store)
     
-    # 3. Demonstrate search capabilities
+    # 4. Demonstrate search capabilities
     demonstrate_search_capabilities(store)
     
-    # 4. Demonstrate keyword-specific search
+    # 5. Demonstrate keyword-specific search
     demonstrate_keywords_search(store)
     
-    # 5. Demonstrate service retrieval
+    # 6. Demonstrate service retrieval
     demonstrate_service_retrieval(store)
     
-    # 6. Demonstrate Python built-ins
+    # 7. Demonstrate Python built-ins
     demonstrate_python_built_ins(store)
     
     # 7. Demonstrate local storage

@@ -6,8 +6,14 @@ This script:
 1. Creates a GovernmentServicesStore instance
 2. Uses the load_services() method (which tries local first, then external)
 3. Ensures the services are stored locally for future use
+4. Reports on semantic search capabilities and embedding status
+5. Demonstrates semantic search if embeddings are available
 
 Usage:
+    python load_services_simple.py
+    
+    # To enable semantic search (embeddings computed when loading from external store):
+    set OPENAI_API_KEY=your-api-key-here
     python load_services_simple.py
 """
 
@@ -56,6 +62,19 @@ def main():
         print(f"   Total services loaded: {services_count}")
         print(f"   Local storage: {local_file_path}")
         
+        # Check embedding status
+        embedding_stats = store.get_embedding_statistics()
+        print(f"\n🧠 Semantic Search Status:")
+        print(f"   Embeddings computed: {'✅ Yes' if embedding_stats['embeddings_computed'] else '❌ No'}")
+        print(f"   Total embeddings: {embedding_stats['total_embeddings']}")
+        print(f"   Coverage: {embedding_stats['coverage_percentage']}% ({embedding_stats['total_embeddings']}/{embedding_stats['total_services']} services)")
+        
+        if not embedding_stats['embeddings_computed'] or embedding_stats['total_embeddings'] == 0:
+            print(f"   💡 Tip: Set OPENAI_API_KEY environment variable to enable semantic search")
+            print(f"        Embeddings are computed when loading from external store")
+        else:
+            print(f"   🎯 Semantic search is available!")
+        
         # Show a few sample services
         print(f"\n🔍 Sample services:")
         all_services = store.get_all_services()
@@ -65,6 +84,24 @@ def main():
                 print(f"     {service.description[:80]}...")
             else:
                 print(f"     {service.description}")
+        
+        # Demonstrate search capabilities if embeddings are available
+        if embedding_stats['embeddings_computed'] and embedding_stats['total_embeddings'] > 0:
+            print(f"\n🔍 Testing semantic search...")
+            try:
+                # Test semantic search with a simple query
+                test_query = "I need to register my newborn baby"
+                semantic_results = store.search_services_semantically(test_query, k=2)
+                
+                if semantic_results:
+                    print(f"   Query: '{test_query}'")
+                    print(f"   Found {len(semantic_results)} relevant services:")
+                    for i, service in enumerate(semantic_results, 1):
+                        print(f"     {i}. {service.name}")
+                else:
+                    print(f"   No results found for test query")
+            except Exception as search_error:
+                print(f"   ⚠️  Semantic search test failed: {search_error}")
         
         print(f"\n✅ Government services are ready for use!")
         

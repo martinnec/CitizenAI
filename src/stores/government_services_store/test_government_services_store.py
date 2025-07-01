@@ -8,6 +8,7 @@ This file provides thorough testing of all GovernmentServicesStore functionality
 - Automatic ID extraction from URIs
 - Built-in Python operations
 - Error handling scenarios
+- Semantic search with vector embeddings
 """
 
 import unittest
@@ -15,6 +16,7 @@ import tempfile
 import shutil
 from pathlib import Path
 import json
+import os
 from unittest.mock import patch, MagicMock
 from government_services_store import GovernmentService, GovernmentServicesStore
 
@@ -558,6 +560,249 @@ class TestGovernmentServicesStoreLoadingStrategy(unittest.TestCase):
                 self.assertEqual(self.store.get_services_count(), 0)
 
 
+class TestSemanticSearch(unittest.TestCase):
+    """Test semantic search functionality."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.original_cwd = Path.cwd()
+        os.chdir(self.temp_dir)
+        
+        self.store = GovernmentServicesStore()
+        
+        # Add sample services for testing
+        self.test_services = [
+            GovernmentService(
+                uri="https://example.gov/birth-registration",
+                id="birth-registration",
+                name="Birth Registration",
+                description="Register the birth of a newborn child",
+                keywords=["birth", "newborn", "baby", "registration", "certificate"]
+            ),
+            GovernmentService(
+                uri="https://example.gov/business-license",
+                id="business-license",
+                name="Business License Application",
+                description="Apply for a license to start a new business",
+                keywords=["business", "license", "entrepreneurship", "company", "startup"]
+            ),
+            GovernmentService(
+                uri="https://example.gov/unemployment-benefits",
+                id="unemployment-benefits",
+                name="Unemployment Benefits",
+                description="Apply for unemployment compensation and job search assistance",
+                keywords=["unemployment", "benefits", "job", "assistance", "welfare"]
+            )
+        ]
+        
+        self.store.add_services(self.test_services)
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        os.chdir(self.original_cwd)
+        shutil.rmtree(self.temp_dir)
+    
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
+    @patch('government_services_store.openai.OpenAI')
+    @patch('government_services_store.chromadb.PersistentClient')
+    def test_initialize_semantic_search(self, mock_chroma, mock_openai):
+        """Test semantic search initialization."""
+        # Mock ChromaDB components
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 0
+        mock_client = MagicMock()
+        mock_client.get_or_create_collection.return_value = mock_collection
+        mock_chroma.return_value = mock_client
+        
+        # Mock OpenAI client
+        mock_openai_client = MagicMock()
+        mock_openai.return_value = mock_openai_client
+        
+        # Test initialization
+        self.store._initialize_semantic_search()
+        
+        # Verify initialization
+        self.assertIsNotNone(self.store._openai_client)
+        self.assertIsNotNone(self.store._chroma_client)
+        self.assertIsNotNone(self.store._collection)
+        
+        # Verify ChromaDB was configured correctly
+        mock_chroma.assert_called_once()
+        mock_client.get_or_create_collection.assert_called_once_with(
+            name="government_services",
+            metadata={"description": "Government services embeddings for semantic search"}
+        )
+    
+    def test_initialize_semantic_search_missing_api_key(self):
+        """Test semantic search initialization without API key."""
+        # Ensure no API key is set
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(RuntimeError) as context:
+                self.store._initialize_semantic_search()
+            
+            self.assertIn("OPENAI_API_KEY", str(context.exception))
+    
+    def test_get_service_text_for_embedding(self):
+        """Test text extraction for embedding."""
+        service = self.test_services[0]  # Birth registration service
+        text = self.store._get_service_text_for_embedding(service)
+        
+        expected_text = "Birth Registration Register the birth of a newborn child birth newborn baby registration certificate"
+        self.assertEqual(text, expected_text)
+    
+    def test_get_service_text_for_embedding_no_keywords(self):
+        """Test text extraction for service without keywords."""
+        service = GovernmentService(
+            uri="https://example.gov/test",
+            id="test",
+            name="Test Service",
+            description="Test description",
+            keywords=None
+        )
+        
+        text = self.store._get_service_text_for_embedding(service)
+        expected_text = "Test Service Test description"
+        self.assertEqual(text, expected_text)
+    
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
+    @patch('government_services_store.openai.OpenAI')
+    @patch('government_services_store.chromadb.PersistentClient')
+    def test_compute_embeddings_success(self, mock_chroma, mock_openai):
+        """Test successful embedding computation."""
+        # Mock ChromaDB components
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 0
+        mock_collection.get.return_value = {'ids': []}  # No existing embeddings
+        mock_client = MagicMock()
+        mock_client.get_or_create_collection.return_value = mock_collection
+        mock_chroma.return_value = mock_client
+        
+        # Mock OpenAI embeddings response
+        mock_embedding_data = [
+            MagicMock(embedding=[0.1, 0.2, 0.3]),
+            MagicMock(embedding=[0.4, 0.5, 0.6]),
+            MagicMock(embedding=[0.7, 0.8, 0.9])
+        ]
+        mock_response = MagicMock()
+        mock_response.data = mock_embedding_data
+        
+        mock_openai_client = MagicMock()
+        mock_openai_client.embeddings.create.return_value = mock_response
+        mock_openai.return_value = mock_openai_client
+        
+        # Test embedding computation
+        self.store._compute_embeddings()
+        
+        # Verify OpenAI API was called
+        mock_openai_client.embeddings.create.assert_called_once()
+        call_args = mock_openai_client.embeddings.create.call_args
+        self.assertEqual(call_args[1]['model'], 'text-embedding-3-large')
+        self.assertEqual(len(call_args[1]['input']), 3)  # Three services
+        
+        # Verify ChromaDB collection was updated
+        mock_collection.add.assert_called_once()
+        add_call_args = mock_collection.add.call_args[1]
+        self.assertEqual(len(add_call_args['embeddings']), 3)
+        self.assertEqual(len(add_call_args['ids']), 3)
+        self.assertEqual(len(add_call_args['documents']), 3)
+        self.assertEqual(len(add_call_args['metadatas']), 3)
+        
+        # Verify embeddings computed flag is set
+        self.assertTrue(self.store._embeddings_computed)
+    
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
+    @patch('government_services_store.openai.OpenAI')
+    @patch('government_services_store.chromadb.PersistentClient')
+    def test_semantic_search_success(self, mock_chroma, mock_openai):
+        """Test successful semantic search."""
+        # Mock ChromaDB components
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 3
+        mock_collection.query.return_value = {
+            'ids': [['birth-registration', 'business-license']],
+            'distances': [[0.1, 0.3]]
+        }
+        mock_client = MagicMock()
+        mock_client.get_or_create_collection.return_value = mock_collection
+        mock_chroma.return_value = mock_client
+        
+        # Mock OpenAI query embedding response
+        mock_query_embedding = MagicMock(embedding=[0.15, 0.25, 0.35])
+        mock_query_response = MagicMock()
+        mock_query_response.data = [mock_query_embedding]
+        
+        mock_openai_client = MagicMock()
+        mock_openai_client.embeddings.create.return_value = mock_query_response
+        mock_openai.return_value = mock_openai_client
+        
+        # Set embeddings as computed
+        self.store._embeddings_computed = True
+        
+        # Test semantic search
+        results = self.store.search_services_semantically("I need to register my baby", k=2)
+        
+        # Verify results
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0].id, "birth-registration")
+        self.assertEqual(results[1].id, "business-license")
+        
+        # Verify OpenAI API was called for query embedding
+        mock_openai_client.embeddings.create.assert_called_once_with(
+            input=["I need to register my baby"],
+            model="text-embedding-3-large"
+        )
+        
+        # Verify ChromaDB query was called
+        mock_collection.query.assert_called_once_with(
+            query_embeddings=[[0.15, 0.25, 0.35]],
+            n_results=2
+        )
+    
+    def test_semantic_search_empty_query(self):
+        """Test semantic search with empty query."""
+        results = self.store.search_services_semantically("", k=5)
+        self.assertEqual(len(results), 0)
+        
+        results = self.store.search_services_semantically("   ", k=5)
+        self.assertEqual(len(results), 0)
+    
+    def test_get_embedding_statistics(self):
+        """Test embedding statistics retrieval."""
+        # Test without initialized semantic search
+        stats = self.store.get_embedding_statistics()
+        expected_stats = {
+            "embeddings_computed": False,
+            "total_embeddings": 0,
+            "total_services": 3,
+            "coverage_percentage": 0.0
+        }
+        self.assertEqual(stats, expected_stats)
+    
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
+    @patch('government_services_store.chromadb.PersistentClient')
+    def test_get_embedding_statistics_with_embeddings(self, mock_chroma):
+        """Test embedding statistics with computed embeddings."""
+        # Mock ChromaDB components
+        mock_collection = MagicMock()
+        mock_collection.count.return_value = 2  # 2 out of 3 services have embeddings
+        mock_client = MagicMock()
+        mock_client.get_or_create_collection.return_value = mock_collection
+        mock_chroma.return_value = mock_client
+        
+        self.store._collection = mock_collection
+        self.store._embeddings_computed = True
+        
+        stats = self.store.get_embedding_statistics()
+        expected_stats = {
+            "embeddings_computed": True,
+            "total_embeddings": 2,
+            "total_services": 3,
+            "coverage_percentage": 66.67
+        }
+        self.assertEqual(stats, expected_stats)
+
+
 def run_comprehensive_tests():
     """Run all comprehensive tests."""
     print("=" * 80)
@@ -572,7 +817,8 @@ def run_comprehensive_tests():
         TestGovernmentService,
         TestGovernmentServicesStore,
         TestGovernmentServicesStoreLocalStorage,
-        TestGovernmentServicesStoreLoadingStrategy
+        TestGovernmentServicesStoreLoadingStrategy,
+        TestSemanticSearch
     ]
     
     for test_class in test_classes:

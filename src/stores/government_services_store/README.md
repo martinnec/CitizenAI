@@ -5,6 +5,7 @@ An in-memory store for managing government services specifications with search f
 ## Features
 
 - **Service Management**: Store and manage government services with URI, ID, name, description, and keywords
+- **Semantic Search**: AI-powered search using OpenAI embeddings and ChromaDB vector database
 - **Keyword Search**: Search services by keywords with frequency-based ranking across all fields
 - **Service Retrieval**: Get individual services by their ID
 - **External Store Integration**: Load services from Czech government SPARQL endpoint
@@ -43,7 +44,13 @@ The main store class providing:
 
 **Core Methods:**
 - `search_services_by_keywords(keywords, k=10)`: Search top-K services by keywords with frequency-based ranking across name, description, and keywords fields
+- `search_services_semantically(query, k=10)`: AI-powered semantic search using vector embeddings to find services matching a natural language query describing a life situation
 - `get_service_by_id(service_id)`: Retrieve service by ID, returns `Optional[GovernmentService]`
+
+**Semantic Search Methods:**
+- `_compute_embeddings()`: Compute and store vector embeddings for all services using OpenAI text-embedding-3-large model
+- `get_embedding_statistics()`: Get statistics about computed embeddings and coverage
+- `_initialize_semantic_search()`: Initialize OpenAI client and ChromaDB components
 
 **Service Management:**
 - `add_service(service)`: Add a single service to the store
@@ -168,17 +175,120 @@ The `search_services_by_keywords()` method implements intelligent keyword matchi
 - Keywords: ["online", "digital"] 
 - Score: 3 (one "online" in description + one "digital" in description + one "digital" in keywords)
 
+## Semantic Search
+
+The store supports AI-powered semantic search using OpenAI embeddings and ChromaDB vector database. This allows you to search for services using natural language descriptions of life situations.
+
+### Setup
+
+1. **Install dependencies**:
+```bash
+pip install openai chromadb numpy
+```
+
+2. **Set OpenAI API key**:
+```bash
+# PowerShell
+$env:OPENAI_API_KEY = "your-openai-api-key-here"
+
+# Command Prompt
+set OPENAI_API_KEY=your-openai-api-key-here
+
+# Linux/Mac
+export OPENAI_API_KEY="your-openai-api-key-here"
+```
+
+### Usage
+
+```python
+import os
+from government_services_store import GovernmentServicesStore
+
+# Ensure API key is set
+os.environ['OPENAI_API_KEY'] = 'your-openai-api-key-here'
+
+# Create store and load services
+store = GovernmentServicesStore()
+store.load_services()  # Automatically computes embeddings after loading
+
+# Semantic search with natural language queries
+results = store.search_services_semantically("I need to register my newborn baby", k=3)
+for service in results:
+    print(f"• {service.name}")
+    print(f"  {service.description}")
+
+# More examples
+business_services = store.search_services_semantically("I want to start a small business", k=5)
+unemployment_help = store.search_services_semantically("I lost my job and need financial help", k=3)
+marriage_services = store.search_services_semantically("I want to get married", k=2)
+
+# Check embedding statistics
+stats = store.get_embedding_statistics()
+print(f"Embeddings computed: {stats['embeddings_computed']}")
+print(f"Coverage: {stats['coverage_percentage']}% ({stats['total_embeddings']}/{stats['total_services']})")
+```
+
+### How It Works
+
+1. **Text Concatenation**: For each service, the system concatenates the name, description, and keywords into a single text
+2. **Embedding Generation**: Uses OpenAI's `text-embedding-3-large` model to generate vector embeddings
+3. **Vector Storage**: Stores embeddings in ChromaDB with persistent storage at `data/stores/government_services_store/chromadb`
+4. **Query Processing**: When searching, the query is embedded using the same model
+5. **Similarity Search**: ChromaDB finds the most similar services using vector similarity (cosine distance)
+6. **Results Ranking**: Returns top-K most semantically similar services
+
+### Benefits of Semantic Search
+
+- **Natural Language**: Search using everyday language descriptions of life situations
+- **Context Understanding**: Finds relevant services even without exact keyword matches
+- **Intelligent Matching**: Understands relationships between concepts (e.g., "newborn" relates to "birth registration")
+- **Multilingual Potential**: Can work across languages with appropriate embeddings
+- **Persistent Storage**: Embeddings are cached locally for fast subsequent searches
+
+### Comparison: Keyword vs Semantic Search
+
+```python
+# Keyword search - requires exact or partial word matches
+keyword_results = store.search_services_by_keywords(["baby", "birth"], k=3)
+
+# Semantic search - understands meaning and context
+semantic_results = store.search_services_semantically("I just had a baby and need to register them", k=3)
+
+# Semantic search often finds more relevant results for complex queries
+complex_query = "My elderly parent needs medical assistance and I don't know where to start"
+relevant_services = store.search_services_semantically(complex_query, k=5)
+```
+
 ## Dependencies
 
 The implementation requires the following packages:
-- **Standard Library**: `typing`, `dataclasses`, `re`, `urllib.parse`, `json`, `pathlib`
-- **External Libraries**: 
-  - `rdflib`: For SPARQL query execution and RDF graph processing
-  - Install with: `pip install rdflib`
 
-Add to your `requirements.txt`:
+**Standard Library**: `typing`, `dataclasses`, `re`, `urllib.parse`, `json`, `pathlib`, `os`, `hashlib`
+
+**External Libraries**: 
+- `rdflib>=6.0.0`: For SPARQL query execution and RDF graph processing
+- `openai>=1.0.0`: For generating vector embeddings using OpenAI API (semantic search)
+- `chromadb>=0.4.0`: For storing and querying vector embeddings (semantic search)
+- `numpy>=1.24.0`: For numerical operations with vectors (semantic search)
+
+### Installation
+
+**Basic functionality** (keyword search, data loading):
+```bash
+pip install rdflib
+```
+
+**Full functionality** (including semantic search):
+```bash
+pip install rdflib openai chromadb numpy
+```
+
+**From requirements.txt**:
 ```
 rdflib>=6.0.0
+openai>=1.0.0
+chromadb>=0.4.0
+numpy>=1.24.0
 ```
 
 ## Testing
@@ -190,7 +300,7 @@ cd src/stores/government_services_store
 python test_government_services_store.py
 ```
 
-The test suite now includes **28 comprehensive tests** covering:
+The test suite now includes **35+ comprehensive tests** covering:
 
 **GovernmentService Tests:**
 - Service creation with explicit IDs
@@ -209,8 +319,17 @@ The test suite now includes **28 comprehensive tests** covering:
 - Single and multiple keyword searches
 - Case-insensitive search functionality
 - Frequency-based ranking verification
-- Edge cases (no keywords, no matches)
-- Top-K result limiting
+- Empty keyword handling
+
+**Semantic Search Tests:**
+- Semantic search initialization and configuration
+- OpenAI API integration testing
+- ChromaDB vector storage testing
+- Query embedding and similarity search
+- Text extraction for embedding
+- Embedding statistics and coverage reporting
+- Error handling for missing API keys
+- Empty query handling
 
 **Local Storage Tests:**
 - Storing services to JSON files
@@ -264,8 +383,8 @@ data/stores/government_services_store/
 ## Implementation Details
 
 **Method Naming Convention:**
-- Public methods: `load_services()`, `search_services_by_keywords()`, etc.
-- Internal methods: `_store_to_local()`, `_load_from_local()`, `_load_from_external_store()`
+- Public methods: `load_services()`, `search_services_by_keywords()`, `search_services_semantically()`, etc.
+- Internal methods: `_store_to_local()`, `_load_from_local()`, `_load_from_external_store()`, `_compute_embeddings()`, `_initialize_semantic_search()`
 - Private attributes: `_services`, `_services_list`
 
 **Error Handling:**

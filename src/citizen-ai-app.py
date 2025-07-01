@@ -30,7 +30,7 @@ class CitizenContext(BaseModel):
     citizen_age: int | None = None
 
 @function_tool
-async def service_lookup_tool(keywords: List[str], k: int) -> List[GovernmentService]:
+async def service_lookup_tool_keywords(keywords: List[str], k: int) -> List[GovernmentService]:
     """
     Search for government services based on exactly matching keywords.
     Keywords must be in Czech.
@@ -40,10 +40,24 @@ async def service_lookup_tool(keywords: List[str], k: int) -> List[GovernmentSer
     
     :param keywords: List of keywords to search for.
     :param k: Number of top results to return.
-    :return: List of GovernmentService objects matching the keywords.
+    :return: List of top-K GovernmentService objects matching the keywords.
     """
     services = store.search_services_by_keywords(keywords, k)
-    print("Debug: Found services:", [service.name for service in services])
+    print("Debug: Found services by keywords:", [service.name for service in services])
+    return services
+
+@function_tool
+async def service_lookup_tool_semantic(life_situation_text: str, k: int) -> List[GovernmentService]:
+    """
+    Search for government services based on the described life situation.
+    If more services are needed, the `k` parameter can be adjusted to return more results and also the list of keywords can be adjusted to include more relevant terms. The keywords should be relevant to the life situation described by the citizen.
+    
+    :param life_situation_text: Description of the life situation.
+    :param k: Number of top results to return.
+    :return: List of top-K GovernmentService objects matching the life situation.
+    """
+    services = store.search_services_by_keywords(keywords, k)
+    print("Debug: Found services by life situation:", [service.name for service in services])
     return services
 
 @function_tool
@@ -61,8 +75,8 @@ async def service_detail_tool(service_id: str) -> str:
     else:
         return "Service not found."
 
-service_lookup_agent = Agent[CitizenContext](
-    name="Service Lookup Agent",
+service_lookup_agent_keywords = Agent[CitizenContext](
+    name="Service Lookup by Keywords Agent",
     handoff_description="A helpful agent that can find government services based on citizens's life situation.",
     instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
     You are a government service lookup agent. You were transferred from the triage agent because the citizen describes their life situation they need to help with.
@@ -71,14 +85,35 @@ service_lookup_agent = Agent[CitizenContext](
     Use the following routine to support the citizen:
     # Routine
     1. Identify the keywords that best characterize the citizen's life situation. These keywords should be short and specific, preferably single words, not keyphrases. Use at least 10 keywords to have a chance to find something.
-    2. Use the `service_lookup_tool` to search for government services based on the identified keywords. It is recommended to set the `k` parameter to 10, but it can be adjusted to return more results if needed.
+    2. Use the `service_lookup_tool_keywords` to search for government services based on the identified keywords. It is recommended to set the `k` parameter to 10, but it can be adjusted to return more results if needed.
     3. If you find no service, ask the citizen to better specify their life situation and repeat the routine from step 1.
     4. If you find services, check if they are relevant to the citizen's problem by comparing their descriptions with the citizen's life situation.
     5. If there is no relevant service, ask the citizen to better specify their life situation and repeat the routine from step 1.
     6. List the relevant services to the citizen, including their names, IDs and short explanations of how they can help the citizen in their life situation.
     7. If the citizen needs more detailed information about a specific service, transfer back to the triage agent.
     """,
-    tools=[service_lookup_tool],
+    tools=[service_lookup_tool_keywords],
+    model="gpt-4o"
+)
+
+service_lookup_agent = Agent[CitizenContext](
+    name="Service Lookup Agent",
+    handoff_description="A helpful agent that can find government services based on citizens's life situation.",
+    instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
+    You are a government service lookup agent. You were transferred from the triage agent because the citizen describes their life situation they need to help with.
+    The citizen speaks Czech, you answer in Czech.
+    Use the following routine to support the citizen:
+    # Routine
+    1. Identify the citizen's life situation based on the previous messages and construct its description. Use the words of the citizen based on the previous conversation, but try to focus it factually as the citizen may be upset, confused or stressed.
+    2. Use the `service_lookup_tool_semantic` to search for government services based on the description. It is recommended to set the `k` parameter to 5, but it can be adjusted to return more results if needed.
+    3. If you find no service, ask the citizen to better specify their life situation and repeat the routine from step 1.
+    4. If you find services, check if they are relevant to the citizen's problem by comparing their descriptions with the citizen's life situation.
+    5. If there is no relevant service, ask the citizen to better specify their life situation and repeat the routine from step 1.
+    6. List the relevant services to the citizen, including their names, IDs and short explanations of how they can help the citizen in their concrete life situation. It is crucial to personalize the service information for the citizen by considering their personal details (name, age) and their life situation.
+    7. If the citizen needs more detailed information about a specific service, transfer back to the triage agent.
+    8. If the citizen starts asking about other services or life situations, transfer back to the triage agent.
+    """,
+    tools=[service_lookup_tool_semantic],
     model="gpt-4o"
 )
 
@@ -105,10 +140,11 @@ service_guide_agent = Agent[CitizenContext](
 triage_agent = Agent[CitizenContext](
     name="Triage Agent",
     handoff_description="A triage agent that can delegate a citizen's request to the appropriate agent. The citizen speaks Czech, you answer in Czech.",
-    instructions=(
-        f"{RECOMMENDED_PROMPT_PREFIX} "
-        "You are a helpful triaging agent. You can use your tools to delegate questions to other appropriate agents."
-    ),
+    instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
+    You are a helpful triaging agent.
+    Always greet the citizen by their name and augment the messages to the citizen appropriately their age, based on the context.
+    You can use your tools to delegate questions to other appropriate agents.
+    """,
     handoffs=[
         service_lookup_agent,
         service_guide_agent
