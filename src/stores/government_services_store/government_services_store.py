@@ -182,9 +182,9 @@ class GovernmentServicesStore:
                 existing_data = self._collection.get()
                 if existing_data['ids']:
                     self._collection.delete(ids=existing_data['ids'])
-                print("[DEBUG] Cleared embeddings from ChromaDB collection.")
+                print("Cleared embeddings from ChromaDB collection.")
             except Exception as e:
-                print(f"[DEBUG] Warning: Failed to clear ChromaDB collection: {e}")
+                print(f"Warning: Failed to clear ChromaDB collection: {e}")
     
     def __len__(self) -> int:
         """Return the number of services in the store."""
@@ -221,7 +221,7 @@ class GovernmentServicesStore:
             try:
                 self._load_from_local()
             except Exception as local_error:
-                print(f"[DEBUG] Warning: Failed to load from local file: {local_error}")
+                print(f"Warning: Failed to load from local file: {local_error}")
                 # Clear any partially loaded data before trying external store
                 self.clear()
         
@@ -233,11 +233,11 @@ class GovernmentServicesStore:
                 
                 # Compute embeddings for semantic search (only when loading from external store)
                 try:
-                    print("[DEBUG] Computing embeddings for semantic search...")
+                    print("Computing embeddings for semantic search...")
                     self._compute_embeddings()
                 except Exception as embedding_error:
-                    print(f"[DEBUG] Warning: Failed to compute embeddings: {embedding_error}")
-                    print("[DEBUG] Semantic search will not be available until embeddings are computed manually.")
+                    print(f"Warning: Failed to compute embeddings: {embedding_error}")
+                    print("Semantic search will not be available until embeddings are computed manually.")
                     
             except Exception as external_error:
                 raise RuntimeError(f"Failed to load services from both local and external sources. "
@@ -303,15 +303,15 @@ class GovernmentServicesStore:
                     
                 except Exception as service_error:
                     # Log individual service creation errors but continue processing
-                    print(f"[DEBUG] Warning: Failed to create service from row {row}: {service_error}")
+                    print(f"Warning: Failed to create service from row {row}: {service_error}")
                     continue
             
             # Add all successfully created services to the store
             if loaded_services:
                 self.add_services(loaded_services)
-                print(f"[DEBUG] Successfully loaded {len(loaded_services)} services from external SPARQL store")
+                print(f"Successfully loaded {len(loaded_services)} services from external SPARQL store")
             else:
-                print("[DEBUG] No services were loaded from the external store")
+                print("No services were loaded from the external store")
                 
         except Exception as e:
             raise RuntimeError(f"Failed to load services from external store: {e}")
@@ -350,7 +350,7 @@ class GovernmentServicesStore:
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(services_data, f, indent=2, ensure_ascii=False)
             
-            print(f"[DEBUG] Successfully stored {len(services_data)} services to {output_file}")
+            print(f"Successfully stored {len(services_data)} services to {output_file}")
             
         except Exception as e:
             raise RuntimeError(f"Failed to store services to local file: {e}")
@@ -388,7 +388,7 @@ class GovernmentServicesStore:
                 try:
                     # Validate required fields
                     if not all(key in service_dict for key in ['uri', 'id', 'name', 'description']):
-                        print(f"[DEBUG] Warning: Skipping service with missing fields: {service_dict}")
+                        print(f"Warning: Skipping service with missing fields: {service_dict}")
                         continue
                     
                     # Get keywords if present, otherwise default to empty list
@@ -407,15 +407,15 @@ class GovernmentServicesStore:
                     
                 except Exception as service_error:
                     # Log individual service creation errors but continue processing
-                    print(f"[DEBUG] Warning: Failed to create service from data {service_dict}: {service_error}")
+                    print(f"Warning: Failed to create service from data {service_dict}: {service_error}")
                     continue
             
             # Add all successfully created services to the store
             if loaded_services:
                 self.add_services(loaded_services)
-                print(f"[DEBUG] Successfully loaded {len(loaded_services)} services from local file")
+                print(f"Successfully loaded {len(loaded_services)} services from local file")
             else:
-                print("[DEBUG] No services were loaded from the local file")
+                print("No services were loaded from the local file")
                 
         except FileNotFoundError:
             raise
@@ -428,7 +428,7 @@ class GovernmentServicesStore:
         """
         details_file_path = Path("data/stores/government_services_store/government_services_details.json")
         if not details_file_path.exists():
-            print(f"[DEBUG] Warning: Auxiliary details file not found at {details_file_path}")
+            print(f"Warning: Auxiliary details file not found at {details_file_path}")
             return
 
         try:
@@ -436,7 +436,7 @@ class GovernmentServicesStore:
                 details_data = json.load(f)
 
             if "položky" not in details_data:
-                print("[DEBUG] Warning: 'položky' key not found in auxiliary details file.")
+                print("Warning: 'položky' key not found in auxiliary details file.")
                 return
 
             details_map = {item['kód']: item for item in details_data["položky"] if 'kód' in item}
@@ -457,12 +457,12 @@ class GovernmentServicesStore:
                             if 'cs' in keyword_item and keyword_item['cs']:
                                 service.keywords.append(keyword_item['cs'])
             
-            print("[DEBUG] Successfully loaded and merged auxiliary details.")
+            print("Successfully loaded and merged auxiliary details.")
 
         except json.JSONDecodeError:
-            print(f"[DEBUG] Warning: Could not decode JSON from {details_file_path}")
+            print(f"Warning: Could not decode JSON from {details_file_path}")
         except Exception as e:
-            print(f"[DEBUG] An error occurred while loading auxiliary details: {e}")
+            print(f"An error occurred while loading auxiliary details: {e}")
 
     def get_service_detail_by_id(self, service_id: str) -> Optional[str]:
         """
@@ -634,7 +634,7 @@ class GovernmentServicesStore:
                 metadata={"description": "Government services embeddings for semantic search"}
             )
             
-            print(f"[DEBUG] Semantic search initialized. Collection has {self._collection.count()} embeddings.")
+            print(f"Semantic search initialized. Collection has {self._collection.count()} embeddings.")
             
         except Exception as e:
             raise RuntimeError(f"Failed to initialize semantic search: {e}")
@@ -667,7 +667,7 @@ class GovernmentServicesStore:
             RuntimeError: If OpenAI API key is not set or embedding computation fails
         """
         if not self._services_list:
-            print("[DEBUG] No services to compute embeddings for.")
+            print("No services to compute embeddings for.")
             return
         
         # Initialize semantic search components if not already done
@@ -691,7 +691,7 @@ class GovernmentServicesStore:
             ]
             
             if not services_to_embed:
-                print("[DEBUG] All services already have embeddings computed.")
+                print("All services already have embeddings computed.")
                 self._embeddings_computed = True
                 return
             

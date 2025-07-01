@@ -158,29 +158,33 @@ service_detail_agent = Agent[CitizenContext](
     8. If the citizen starts asking about other services or life situations, transfer back to the triage agent.
     """,
     tools=[service_detail_tool],
-    model="gpt-4o"
+    model="gpt-4.1-mini"
 )
 
-authority_communication_agent = Agent[CitizenContext](
-    name="Authority Communication Agent",
-    handoff_description="An agent who can help a citizen resolve their life situation by communicating with an authority on their behalf based on the steps given for the service chosen by the citizen for their life situation.",
+authority_agent = Agent[CitizenContext](
+    name="Authority Agent",
+    handoff_description="A helpful agent that represents the authority providing the service to the citizen who needs to resolve their life situation using the service.",
     instructions=f"""{RECOMMENDED_PROMPT_PREFIX}
-    You are an agent who simulates resolving the citizen's life situation.
-    You were transferred from the triage agent because the citizen needs to help to resolve their life situation.
-    You're pretending to communicate on behalf of a citizen with the appropriate authority.
-    The citizen speaks Czech, you answer in Czech.
-    Use the following routine to support the citizen:
+    You are the authority that provides the service to the citizen.
+    You were transferred from the triage agent because the citizen needs to resolve their life situation using the service.
+    You are not the real authority, but you simulate the communication with the authority based on the service steps and details.
+    The citizen must feel that they are communicating with the authority that provides the service to them.
+    Do not reveal that you are not the real authority.
+    The citizen speaks Czech. You speak in Czech.
+    Use the following routine:
     # Routine
     1. Identify the service ID from the citizen's previous conversation. The citizen can ask for the service directly by its ID or by using its name or by textual description refering to the service mentioned during the conversation.
     2. If the service ID cannot be identified, ask the citizen to provide the service ID or name again and repeat the routine from step 1.
-    3. Use the `service_steps_tool` tool to retrieve the steps needed to resolve the citizen's life situation using the service. It may also give you additional information on how to perform the steps and what informaion or documents are needed from the citizen.
-    4. Simulate the communication with the authority based on the steps retrieved from the service. Proceed step by step, asking the citizen for any additional information or documents needed to complete each step. Use the information provided by the citizen to personalize the communication. If the step describes an action of the authority, simulate the action and inform the citizen about the outcome in a realistic way. If you need to find concrete information for a specific step, e.g. concrete questionaire, web site information, etc., use the web search tool.
-    5. If all steps are completed, inform the citizen that their life situation is resolved and provide a summary of the steps taken.
+    3. Use the `service_steps_tool` tool to retrieve the steps needed to resolve the citizen's life situation using the service. It may also give you additional information on how to perform the steps and what informaion or documents are needed from the citizen. Do not output anything to the citizen yet.
+    4. Simulate the authority communicating with the citizen based on the retrieved steps - one by one. Stop at each step and do one of the following:
+      - If the step needs additional information or documents from the citizen, ask the citizen to provide them and wait for their response. You can search the web to find out questionaires, forms, templates or examples showing what kind and structure of information is needed.
+      - If a step describes an action of the authority, do the action and inform the citizen about the result
+    5. Ff all steps are completed, inform the citizen that their life situation is resolved and provide a summary of the steps taken.
     6. If the citizen has further questions or needs assistance, offer to help them with any additional information but do not provide nothing outside the service details.
     7. If the citizen starts asking about other services or life situations, transfer back to the triage agent.
     """,
     tools=[service_steps_tool, WebSearchTool(user_location={"type": "approximate", "country": "CZ"})],
-    model="gpt-4o"
+    model="o4-mini-2025-04-16"
 )
 
 triage_agent = Agent[CitizenContext](
@@ -193,15 +197,15 @@ triage_agent = Agent[CitizenContext](
     handoffs=[
         service_lookup_agent,
         service_detail_agent,
-        authority_communication_agent
+        authority_agent
     ],
-    model="gpt-4o"
+    model="gpt-4.1-mini"
 )
 
 service_lookup_agent.handoffs.append(triage_agent)
 service_detail_agent.handoffs.append(triage_agent)
-service_detail_agent.handoffs.append(authority_communication_agent)
-authority_communication_agent.handoffs.append(triage_agent)
+service_detail_agent.handoffs.append(authority_agent)
+authority_agent.handoffs.append(triage_agent)
 
 async def main():
     current_agent: Agent[CitizenContext] = triage_agent
@@ -226,7 +230,8 @@ async def main():
                     f"[AGENTIC AI] Handed off from {new_item.source_agent.name} to {new_item.target_agent.name}"
                 )
             elif isinstance(new_item, ToolCallItem):
-                print(f"[AGENTIC AI] {agent_name}: Calling a tool")
+                tool_name = getattr(new_item.raw_item, 'name', None) or getattr(new_item.raw_item, 'function', {}).get('name', 'unknown tool')
+                print(f"[AGENTIC AI] {agent_name}: Calling a tool {tool_name}")
             elif isinstance(new_item, ToolCallOutputItem):
                 print(f"[AGENTIC AI] {agent_name}: Tool output received.")
             else:
