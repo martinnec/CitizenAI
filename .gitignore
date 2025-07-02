@@ -1,6 +1,10 @@
 # Data directory - contains downloaded/cached service data
 data/
 
+# Launcher scripts (local executable scripts)
+run_citizen_ai.bat
+run_citizen_ai.sh
+
 # Python cache files
 __pycache__/
 *.py[cod]
