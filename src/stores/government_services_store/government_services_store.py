@@ -625,7 +625,10 @@ class GovernmentServicesStore:
             persist_directory.mkdir(parents=True, exist_ok=True)
             
             self._chroma_client = chromadb.PersistentClient(
-                path=str(persist_directory)
+                path=str(persist_directory),
+                settings=Settings(
+                    anonymized_telemetry=False,
+                )
             )
             
             # Get or create collection for government services
